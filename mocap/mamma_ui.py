@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QWidget,QVBoxLayout,QGridLayout,QScrollArea,QTool
     QComboBox,QLabel,QPushButton,QFileDialog,QSizePolicy,QSpinBox,QDoubleSpinBox)
 from .mamma_inputs import video_paths, common_media, read_calibration, match_calibration, resolved_entries
 from .ui_refresh import batch_readiness
+from .theme import set_tone
 
 
 class CameraThumbnail(QToolButton):
@@ -127,7 +128,7 @@ class MammaWorkspace:
         height_label.setToolTip(self.mamma_height.toolTip());box.addWidget(height_label)
         self.mamma_height.valueChanged.connect(self.mamma_settings_changed);box.addWidget(self.mamma_height)
         self.mamma_setup_notice=QLabel('MAMMA runtime required. Open Model Manager > Runtime Setup.')
-        self.mamma_setup_notice.setWordWrap(True);self.mamma_setup_notice.setStyleSheet('color:#ffb45c')
+        self.mamma_setup_notice.setWordWrap(True);set_tone(self.mamma_setup_notice,'warning')
         box.addWidget(self.mamma_setup_notice)
         page.setToolTip('Open synchronized, fixed-camera videos of the same performance. All videos share one trim range, starting at the same time. Select a thumbnail to change the preview camera.')
         self.model_pages.addWidget(page)
@@ -212,7 +213,7 @@ class MammaWorkspace:
             button.setIconSize(QSize(100,48));button.setText(str(i+1));button.setMinimumWidth(0)
             button.setFixedHeight(88);button.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
             button.setToolTip(entry['id']+'\n'+entry['path']);button.setAccessibleName('Preview camera '+entry['id'])
-            button.setStyleSheet('QToolButton{background:#303030;border:1px solid #555;padding:3px;color:#ddd}QToolButton:checked{border:2px solid #8ac1ff;background:#385571}')
+            button.setObjectName('cameraThumbnail')
             button.clicked.connect(lambda checked=False,i=i:self.select_mamma_camera(i))
             self.mamma_thumbnail_grid.addWidget(button,i//4,i%4);self.mamma_thumbnail_buttons.append(button)
         self.mamma_thumbnails.setFixedHeight(min(220,8+math.ceil(len(entries)/4)*92))
@@ -413,8 +414,10 @@ class MammaWorkspace:
                 elif self.project is not None and getattr(self,'_mamma_committed_options',None)!=self.mamma_options():
                     message='Camera/person settings changed. Reconstruct 3D to apply; the previous motion is still displayed.'
                 self.mamma_setup_notice.setText(message);self.mamma_setup_notice.setVisible(bool(message))
+                set_tone(self.mamma_setup_notice,'warning' if message else '')
             except (OSError,ValueError,RuntimeError) as error:
                 self.mamma_setup_notice.setText(str(error));self.mamma_setup_notice.show()
+                set_tone(self.mamma_setup_notice,'warning')
                 self.run_button.setEnabled(False)
             self.mamma_camera_import.setEnabled(not self.busy)
             self.mamma_camera_mode.setEnabled(not self.busy)

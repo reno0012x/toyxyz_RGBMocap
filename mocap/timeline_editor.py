@@ -4,11 +4,14 @@ from PySide6.QtCore import Qt, QRectF, QPointF, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QSlider, QSizePolicy
 from .footlock_editor import FootLockEditor
+from .theme import color as ui_color, current_theme
+from .i18n import tr, language
 
 
 class TimelineSlider(FootLockEditor,QSlider):
     clip_changed = Signal(int, int)  # Inclusive in, exclusive out, in media frames.
     trim_started = Signal()
+    export_selection_changed = Signal()
     contacts_changed=Signal(object)
     contacts_edit_started=Signal()
     contacts_reset=Signal()
@@ -32,13 +35,18 @@ class TimelineSlider(FootLockEditor,QSlider):
         self._cache = None
         self._cache_key = None
         self._pan_origin = None
-        self._playhead_drag = None
         self.clip_in, self.clip_out = 0, 1
         self.trim_enabled = True
         self._trim_drag = None
+        self.export_selection = None
+        self._export_drag = None
+        self._ruler_selection = None
+        self._playhead_drag = False
         self.setMouseTracking(True)
+        self.setToolTip(tr('Left drag on frame numbers: seek. Middle drag: select frames for FBX export. Escape clears the selection.'))
         self.rangeChanged.connect(self.frame_all)
         self.rangeChanged.connect(self.reset_trim)
+        self.rangeChanged.connect(self.clear_export_selection)
         self.valueChanged.connect(self._follow)
 
     def frame_all(self, *_):
@@ -47,6 +55,7 @@ class TimelineSlider(FootLockEditor,QSlider):
         self.update()
 
     def set_media(self, fps, has_motion=None):
+        self.clear_export_selection()
         self.fps = fps
         if has_motion is not None:
             self.has_motion = has_motion
@@ -58,6 +67,24 @@ class TimelineSlider(FootLockEditor,QSlider):
 
     def reset_trim(self, *_):
         self.set_clip(0, self.maximum() + 1)
+
+    def set_export_selection(self, first, stop):
+        if type(first) is not int or type(stop) is not int or not 0 <= first < stop <= self.maximum() + 1:
+            raise ValueError('Select a valid Timeline frame range.')
+        self.export_selection = (first, stop)
+        self.export_selection_changed.emit()
+        self.update()
+
+    def clear_export_selection(self, *_):
+        self.export_selection = None
+        self._export_drag = None
+        self._ruler_selection = None
+        self.export_selection_changed.emit()
+        self.update()
+
+    def _drag_export_selection(self, event):
+        last = self._position(event)
+        self.set_export_selection(min(self._export_drag, last), max(self._export_drag, last) + 1)
 
     def set_clip(self, first, end):
         total, minimum = self.maximum() + 1, self.minimum_clip_frames()
@@ -108,11 +135,6 @@ class TimelineSlider(FootLockEditor,QSlider):
         point=event.position()
         return 0 <= point.y() < self.RULER_HEIGHT and self.LEFT <= point.x() <= self.width()-self.RIGHT
 
-    def _drag_playhead(self, event):
-        pixel, frame, scale = self._playhead_drag
-        value = round(frame + (event.position().x() - pixel) * scale)
-        self.setValue(max(self.minimum(), min(self.maximum(), value)))
-
     def _clamp_view(self):
         self.view_start = max(self.minimum(), min(max(self.minimum(), self.maximum() - self.span()), self.view_start))
 
@@ -125,26 +147,22 @@ class TimelineSlider(FootLockEditor,QSlider):
     def mousePressEvent(self, event):
         if self._foot_press(event):return
         if event.button() == Qt.MiddleButton:
-            self._pan_origin = (event.position().x(), self.view_start)
+            if self._in_ruler(event):
+                self.setFocus(Qt.MouseFocusReason)
+                self._ruler_selection = (self._position(event), event.position().x())
+            else:
+                self._pan_origin = (event.position().x(), self.view_start)
             event.accept()
         elif event.button() == Qt.LeftButton:
             self._trim_drag = self._trim_handle(event)
             if self._trim_drag:
                 self.trim_started.emit()
                 self.setCursor(Qt.SizeHorCursor)
-            elif self.playhead_rect().contains(event.position()):
+            elif self._in_ruler(event) or self.playhead_rect().contains(event.position()):
                 self.setFocus(Qt.MouseFocusReason)
-                self._playhead_drag = (event.position().x(), self.value(),
-                    self.span() / max(1, self.width() - self.LEFT - self.RIGHT))
-                self.setSliderDown(True)
-                self.setCursor(Qt.ClosedHandCursor)
-            elif self._in_ruler(event):
-                self.setFocus(Qt.MouseFocusReason)
+                self.trim_started.emit()
+                self._playhead_drag = True
                 self.setValue(self._position(event))
-                self._playhead_drag = (event.position().x(), self.value(),
-                    self.span() / max(1, self.width() - self.LEFT - self.RIGHT))
-                self.setSliderDown(True)
-                self.setCursor(Qt.ClosedHandCursor)
             event.accept()
         else:
             super().mousePressEvent(event)
@@ -157,35 +175,53 @@ class TimelineSlider(FootLockEditor,QSlider):
             self._clamp_view()
             self.update()
             event.accept()
+        elif self._ruler_selection is not None:
+            frame, pixel = self._ruler_selection
+            if self._export_drag is not None or abs(event.position().x() - pixel) >= 3:
+                if self._export_drag is None:self.trim_started.emit()
+                self._export_drag = frame
+                self._drag_export_selection(event)
+                self.setCursor(Qt.CrossCursor)
+            event.accept()
+        elif self._playhead_drag:
+            self.setValue(self._position(event))
+            event.accept()
         elif self._trim_drag:
             self._drag_trim(event)
-            event.accept()
-        elif self._playhead_drag is not None:
-            self._drag_playhead(event)
             event.accept()
         else:
             foot=self._contact_row(event)
             if foot is not None and self.contact_edit_enabled and event.position().x()>=self.LEFT:
                 _,mode=self._contact_hit(foot,event)
                 self.setCursor(Qt.SizeHorCursor if mode in ('left','right') else Qt.OpenHandCursor if mode=='move' else Qt.CrossCursor)
-            else:self.setCursor(Qt.OpenHandCursor if self.playhead_rect().contains(event.position())
-                else Qt.PointingHandCursor if self._in_ruler(event)
+            else:self.setCursor(Qt.CrossCursor if self._in_ruler(event)
                 else Qt.SizeHorCursor if self._trim_handle(event) else Qt.ArrowCursor)
             event.accept()
 
     def mouseReleaseEvent(self, event):
         if self._foot_release(event):return
         if event.button() == Qt.MiddleButton:
+            if self._export_drag is not None:
+                self._drag_export_selection(event)
+                self._export_drag = None
+                self._ruler_selection = None
+            elif self._ruler_selection is not None:
+                frame, pixel = self._ruler_selection
+                if abs(event.position().x() - pixel) >= 3:
+                    self._export_drag = frame
+                    self._drag_export_selection(event)
+                    self._export_drag = None
+                self._ruler_selection = None
             self._pan_origin = None
+            self.setCursor(Qt.ArrowCursor)
             event.accept()
         elif event.button() == Qt.LeftButton:
-            if self._trim_drag:
+            if self._playhead_drag:
+                self.setValue(self._position(event))
+                self._playhead_drag = False
+            elif self._trim_drag:
                 self._drag_trim(event)
                 self._trim_drag = None
-            elif self._playhead_drag is not None:
-                self._drag_playhead(event)
-                self._playhead_drag = None
-                self.setSliderDown(False)
             self.setCursor(Qt.ArrowCursor)
             event.accept()
         else:
@@ -205,8 +241,15 @@ class TimelineSlider(FootLockEditor,QSlider):
         self.update()
         event.accept()
 
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape and self.export_selection is not None and not self._foot_drag and self._selected_contact is None:
+            self.clear_export_selection()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def paintEvent(self, _):
-        key = (self.size(), self.devicePixelRatioF(), self.minimum(), self.maximum(), self.view_start,
+        key = (current_theme(), language(), self.size(), self.devicePixelRatioF(), self.minimum(), self.maximum(), self.view_start,
                self.span(), self.fps, self.has_motion, self.clip_in, self.clip_out,self.contact_revision,self.contact_edit_enabled,self.contact_track_enabled,
                self.person_color,self.person_name,self.video_track_label,
                (self._foot_drag['foot'],self._foot_drag['index']) if self._foot_drag else None,self._selected_contact)
@@ -214,9 +257,18 @@ class TimelineSlider(FootLockEditor,QSlider):
             ratio = self.devicePixelRatioF()
             cache = QPixmap(round(self.width() * ratio), round(self.height() * ratio))
             cache.setDevicePixelRatio(ratio)
-            cache.fill(QColor("#242424"))
+            cache.fill(QColor(ui_color('canvas')))
             p = QPainter(cache)
-            p.fillRect(0, 0, self.width(), self.RULER_HEIGHT, QColor("#303030"))
+            p.setRenderHint(QPainter.Antialiasing)
+            p.fillRect(0, 0, self.width(), self.RULER_HEIGHT, QColor(ui_color('rail')))
+            p.fillRect(0, self.RULER_HEIGHT, self.LEFT, self.height(), QColor(ui_color('rail')))
+            for lane in range(6 if getattr(self, 'contacts_supported', True) else 2):
+                y = 28 + lane * self.TRACK_HEIGHT
+                p.fillRect(QRectF(self.LEFT + 5, y + 2, max(0, self.width()-self.LEFT-self.RIGHT-5), self.TRACK_HEIGHT-4), QColor(ui_color('track') if lane % 2 == 0 else ui_color('canvas')))
+                p.setPen(QPen(QColor(ui_color('grid_minor')), 1))
+                p.drawLine(QPointF(0, y + self.TRACK_HEIGHT), QPointF(self.width(), y + self.TRACK_HEIGHT))
+            p.setPen(QPen(QColor(ui_color('grid_major')), 1))
+            p.drawLine(QPointF(self.LEFT, 0), QPointF(self.LEFT, self.height()))
             target = self.span() / max(1, (self.width() - self.LEFT) / 85)
             power = 10 ** math.floor(math.log10(max(1, target)))
             step = next((v * power for v in (1, 2, 5, 10) if v * power >= target), power * 10)
@@ -231,7 +283,10 @@ class TimelineSlider(FootLockEditor,QSlider):
                 tint.setAlpha(80)
                 left, right = self.clip_edges() if row == 0 else (self.LEFT, self.width() - self.RIGHT)
                 left, right = max(self.LEFT, left), min(self.width() - self.RIGHT, right)
-                p.fillRect(QRectF(left, y + 2, max(0, right - left), row_height - 5), tint)
+                if self.maximum() > self.minimum() and (row == 0 or self.has_motion):
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(tint)
+                    p.drawRoundedRect(QRectF(left, y + 3, max(0, right-left), row_height-6), 5, 5)
             self.paint_contact_tracks(p)
             # Draw the time grid above the translucent tracks. The visible tick
             # count remains bounded by viewport width, independent of duration.
@@ -239,42 +294,55 @@ class TimelineSlider(FootLockEditor,QSlider):
             p.setClipRect(QRectF(self.LEFT, 25, max(1,self.width()-self.LEFT-self.RIGHT),self.height()-25))
             minor_step = max(1,step//5)
             minor_first = math.ceil((self.view_start+1)/minor_step)*minor_step-1
-            p.setPen(QPen(QColor(133,133,133,40),1))
+            p.setPen(QPen(QColor(ui_color('grid_minor')),1))
             for frame in range(minor_first,math.ceil(self.view_start+self.span())+1,minor_step):
                 x = self.frame_x(frame)
                 p.drawLine(QPointF(x,25),QPointF(x,self.height()))
-            p.setPen(QPen(QColor(115,115,115,145),1))
+            p.setPen(QPen(QColor(ui_color('grid_major')),1))
             for frame in range(first,math.ceil(self.view_start+self.span())+1,step):
                 x = self.frame_x(frame)
                 p.drawLine(QPointF(x,25),QPointF(x,self.height()))
             p.restore()
-            p.setPen(QColor("#999999"))
-            p.drawText(9,17,"Frame")
+            p.setPen(QColor(ui_color('canvas_muted')))
+            p.drawText(9,17,tr("Frame"))
             for frame in range(first,math.ceil(self.view_start+self.span())+1,step):
                 x = self.frame_x(frame)
-                p.setPen(QColor("#b3b3b3"))
+                p.setPen(QColor(ui_color('canvas_text')))
                 p.drawText(QRectF(x-35,2,70,20),Qt.AlignCenter,str(frame+1))
             for row,label,color in rows:
                 y = 28+row*row_height
-                p.setPen(QColor("#aaaaaa"))
-                p.drawText(QRectF(8, y, 53, row_height), Qt.AlignVCenter, label)
-                p.setPen(QColor("#b1b9c1" if row == 0 else "#aebeb4"))
-                text = self.video_track_label if row == 0 else ((self.person_name or "Body animation") if self.has_motion else "No motion data")
-                if row==1 and getattr(self,"live_preview",False):text="PEAR live preview — no recording"
+                p.setPen(QColor(ui_color('canvas_text')))
+                p.drawText(QRectF(8, y, 53, row_height), Qt.AlignVCenter, tr(label))
+                p.setPen(QColor(ui_color('canvas_text') if self.has_motion else ui_color('canvas_muted')))
+                text = (tr('Source clip') if self.video_track_label == 'Source clip' else self.video_track_label) if row == 0 else ((self.person_name or tr("Body animation")) if self.has_motion else tr("No motion data"))
+                if row==1 and getattr(self,"live_preview",False):text=tr("PEAR live preview — no recording")
                 left, right = self.clip_edges() if row == 0 else (self.LEFT, self.width() - self.RIGHT)
                 left, right = max(self.LEFT, left), min(self.width() - self.RIGHT, right)
+                if row == 0 and self.maximum() <= self.minimum():
+                    right = self.width()-self.RIGHT
+                    text = tr('Open a video to begin')
                 p.drawText(QRectF(left + 12, y, max(0, right - left - 24), row_height), Qt.AlignVCenter, text)
             # Edge grips belong to the video clip, never to the playhead/ruler.
             p.setPen(QPen(QColor("#a6bed5"), 1))
             left, right = self.clip_edges()
             for edge, direction in ((left, 1), (right, -1)):
-                if self.LEFT <= edge <= self.width() - self.RIGHT:
+                if self.maximum() > self.minimum() and self.LEFT <= edge <= self.width() - self.RIGHT:
                     p.fillRect(QRectF(edge if direction == 1 else edge - 6, 30, 6, 21), QColor(139,177,211,150))
                     p.drawLine(QPointF(edge,30),QPointF(edge,51))
             p.end()
             self._cache, self._cache_key = cache, key
         p = QPainter(self)
         p.drawPixmap(0, 0, self._cache)
+        if self.export_selection is not None:
+            first, stop = self.export_selection
+            left = max(self.LEFT, self.frame_x(first))
+            right = min(self.width() - self.RIGHT, self.frame_x(stop - 1))
+            if right >= left:
+                selection = QColor('#4695ef')
+                selection.setAlpha(55)
+                p.fillRect(QRectF(left - 2, 0, max(5, right - left + 4), self.height()), selection)
+                p.setPen(QPen(QColor('#65a9ff'), 1.5))
+                p.drawRect(QRectF(left - 2, 1, max(5, right - left + 4), max(1,self.height()-2)))
         self.paint_contact_selection(p)
         x = self.frame_x(self.value())
         p.setPen(QPen(QColor("#74a6e0"), 1.4))

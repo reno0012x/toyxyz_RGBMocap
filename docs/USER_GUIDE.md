@@ -16,11 +16,13 @@ animated fingers. Standard correction, retargeting and FBX controls apply.
 ## Character retargeting
 
 Transfer a reconstructed person's motion to a character without running AI
-inference again. Supported targets are **Mixamo FBX**, **VRM** and **PMX** humanoids.
+inference again. Supported targets are **Mixamo FBX**, **Unreal humanoid FBX**
+(including the three- and five-spine skeletons), **VRM** and **PMX**.
 
 1. Prepare the source person's motion and apply any contact edits.
 2. Choose **File > Import Character...** and select the character file. It appears
    at the origin in its rest pose, below the source people in the **People** list.
+   You can import the character before you have reconstructed the source motion.
 3. Right-click the character and choose **Retarget > [source person]**. The status
    bar shows processing progress. Play or scrub the timeline to review the result.
 4. Right-click the retargeted character and choose **Export Character...**, or
@@ -62,6 +64,54 @@ character's original bone hierarchy and rest pose separately from its animation;
 the first animation frame does not replace the rest pose. Existing retargeted
 characters can be exported again to use the corrected FBX rest-pose handling.
 
+For **FBX**, set **Frame range** to **All frames** or **Selected frames**.
+Hold the **middle mouse button** (press the wheel) and drag across the **frame numbers**
+at the top of the Timeline to highlight a range first. Left-click or left-drag there
+to move the playhead.
+The FBX dialog starts with that highlighted range selected. **Clear selection**
+or Escape removes the highlight.
+Enter the start and end frames shown on the Timeline. Both ends are included,
+so frames 40–75 export 36 samples when the Timeline and saved motion share a
+frame rate. Repeat with a different filename for each clip. The export uses
+the saved motion, so you can select a new range without reconstructing or retargeting again.
+
+### Edit character bones
+
+Open **Bone Editor** beside **Timeline**. Pick a source person or character in
+**People** or in the editor's own selector. The viewport isolates the selected
+target while the editor is active. Source people such as **Person 1** show the
+captured skeleton for inspection. Character checkboxes control their visibility.
+Switch back to **Timeline** with the editor docked to see the regular viewport selection again.
+
+Drag the **Bone Editor** tab out or click **↗** to open a separate window. Both
+windows share the playhead and 3D viewport. Click **Dock Bone Editor** or close
+the detached window to return it to its tab.
+
+For editing, choose a character after **Retarget** and click **Prepare Bone
+Editor** once per take. Preparation reads the baked animation and makes all of
+its bones available, including fingers and helper bones.
+
+Select a bone in the tree, search by its real name, or click its overlay in the
+3D viewport. **X-Ray** shows the full selectable skeleton. **Move** and **Rotate**
+show axis handles. Drag a handle to make a key at the playhead, or enter
+position offsets in metres and XYZ rotation offsets in degrees. Choose **Local**
+for posed bone axes or **World** for the character's scene axes. Clear the bone's
+track before changing its coordinate space.
+
+Use **Add / Update Key** to key the current frame. An individual key holds its
+value beyond the end of its track, and neighboring keys interpolate. Drag a
+diamond to move it. To limit an edit to a range, middle-drag across the frame
+ruler and use **Apply to range**. Set the same start and end frame to edit exactly
+one frame. Each take has its own numbered frames and edit layer.
+
+Edits are saved to the project as you make them. Use **Undo** or **Redo** in the
+current session, and toggle **Enable edit layer** to compare poses. **Save Project
+As** carries the edits into the project copy. Retargeting again creates a new
+animation take with its own edits. **Export Character → FBX** bakes the enabled
+layer into both full and selected-frame exports. Disable the edit layer before
+exporting VMD. Codex can operate the same controls through the [RGB MoCap MCP
+tools](CODEX_MCP.md).
+
 Known humanoid mappings are automatic; custom bone mapping is not yet available.
 Files missing required body bones are rejected with a message. The viewport shows
 base-color textures at their original resolution, with simplified lighting rather
@@ -99,7 +149,7 @@ have not yet been verified; compatibility reports are welcome.
    Prompt** in a writable folder, then run:
 
    ```cmd
-   git clone https://github.com/toyxyz/toyxyz_RGBMocap.git
+   git clone https://github.com/reno0012x/toyxyz_RGBMocap.git
    cd toyxyz_RGBMocap
    ```
 
@@ -698,7 +748,7 @@ an estimate and can leave residual sliding or penetration.
 | **Motion Path / Follow Actor** | Show the person's path / move the viewing camera with the person. |
 | **Lock** | Show active hand/foot contacts as translucent horizontal discs in timeline colors. Hand discs are at palm height, including raised supports. Display only. |
 | **Name** | Show list names above visible people and imported characters. Text stays upright and the same screen size as you move the camera. Rename a person from the list's right-click menu. |
-| **Timeline ruler / blue frame box** | Click or drag to seek. Track editing does not seek. Wheel zooms; middle drag or Shift+wheel pans. |
+| **Timeline ruler / blue frame box** | Left-click or left-drag to seek. Middle-drag across the frame numbers to select an FBX export range. Track editing does not seek. Wheel zooms; middle-drag on the tracks or Shift+wheel pans. |
 | **Playback / frame number / speed** | Space plays/pauses; arrows step one frame, Shift+arrows one second. Enter a frame number to jump. Playback speed affects preview only. |
 | **Timeline Frame All / Reset Trim** | Fit the full timeline / restore the full clip range. |
 
@@ -738,6 +788,10 @@ The selected, applied result is exported. Each checked
 person/take gets a separate named file and rig; duplicate filenames get suffixes.
 People exports use the viewport's shared placement. Takes retain their own frame
 counts; align their start times when combining different source intervals.
+
+When exporting **FBX**, **Frame range → Selected frames** limits the saved motion
+to the chosen Timeline start and end frames, inclusive. Each overlapping take
+exports only its part of that range. **All frames** exports the complete takes.
 
 SMPL source-person exports use a 52-bone hierarchy with **Hips** as root and plain
 anatomical names by default. The Biped profile renames exported joints as described

@@ -5,6 +5,16 @@ from pathlib import Path
 import numpy as np
 from .motion_tools import selected_export
 from .result_artifacts import file_stat
+from .export_frame_range import checked_frame_slice
+
+
+def _publish(temporary, target, no_overwrite):
+    if not no_overwrite:
+        os.replace(temporary, target)
+    elif os.name == 'nt':
+        os.rename(temporary, target)  # Windows rename never replaces an existing path.
+    else:
+        os.link(temporary, target)
 
 
 def run(request, emit=lambda *a, **k:None):
@@ -27,6 +37,9 @@ def run(request, emit=lambda *a, **k:None):
             if source is None or source.resolve()!=Path(row['source']).resolve():
                 raise ValueError('Selected target motion changed. Prepare Preview and export again.')
             if target.suffix.lower()!='.fbx':raise ValueError('Choose an FBX destination')
+            no_overwrite = row.get('no_overwrite', False)
+            if no_overwrite and os.path.lexists(target):
+                raise FileExistsError(f'Export destination already exists: {target}')
             temporary=partial(target,request)
             output=temporary
             work=None
@@ -49,7 +62,7 @@ def run(request, emit=lambda *a, **k:None):
                 def progress(done,total):
                     emit('progress',stage='save_fbx',current=i*total+done,total=len(rows)*total,message='Export SOMA FBX')
 
-                staged.append((output,target,work))
+                staged.append((output,target,work,no_overwrite))
                 native_checks.append(write_soma(temporary,row,source,destinations,'fbx',progress))
                 continue
             meta=project/(kind+'_mixamo.json');info=json.loads(meta.read_text(encoding='utf-8'))
@@ -61,7 +74,7 @@ def run(request, emit=lambda *a, **k:None):
             stamps=[file_stat(p) for p in paths]
             scene=row.get('scene')
             if scene is not None and context(scene['root'],project)!=scene:raise ValueError('Scene placement changed. Export again.')
-            staged.append((output,target,work))
+            staged.append((output,target,work,no_overwrite))
             committed.append((project,kind,paths,stamps,scene))
             with np.load(project/info['asset_file'],allow_pickle=False) as data:
                 needed=('parents','fbx_rest','fbx_rest_frames','fbx_display_frames','fbx_tip_local')
@@ -71,8 +84,9 @@ def run(request, emit=lambda *a, **k:None):
                 if row.get('symmetric_rest',False):
                     if not all(k in data for k in ('rest','ends')):raise ValueError('Symmetric rest data is unavailable. Use Prepare Preview first.')
                     symmetric=dict(rest=data['rest'],ends=data['ends'])
-            frames=np.load(project/info['frames_file'],mmap_mode='r',allow_pickle=False)
+            frame_data=np.load(project/info['frames_file'],mmap_mode='r',allow_pickle=False)
             try:
+                frames = frame_data[checked_frame_slice(row.get('frame_slice'), len(frame_data))]
                 transform=np.eye(4) if scene is None else np.asarray(scene['transform'],float)
                 if row.get('place_at_origin',False):
                     from .export_options import centered_transform
@@ -83,7 +97,7 @@ def run(request, emit=lambda *a, **k:None):
                       a['fbx_display_frames'],a['fbx_tip_local'],frames,info['fps'],
                       transform=transform,progress=progress,
                       rig_name=row.get('rig_name','SourceAnimation'),prepend_tpose=row.get('prepend_tpose',False),symmetric_bind=symmetric)
-            finally:frames._mmap.close()
+            finally:frame_data._mmap.close()
         for work in compatibility_dirs:
             build(work,'fbx_compatibility_scene.py',emit,'save_fbx')
             if not (work/'compatible.fbx').is_file():
@@ -94,10 +108,10 @@ def run(request, emit=lambda *a, **k:None):
             if [file_stat(p) for p in paths]!=stamps or selected_export(project,kind)!=paths[1]:
                 raise ValueError('Motion generation changed during export. Retry.')
             if scene is not None and context(scene['root'],project)!=scene:raise ValueError('Scene placement changed during export. Retry.')
-        for temporary,target,*_ in staged:os.replace(temporary,target)
+        for temporary,target,_,no_overwrite in staged:_publish(temporary,target,no_overwrite)
         return len(staged)
     finally:
-        for output,_,work in staged:
+        for output,_,work,_ in staged:
             if work is None:output.unlink(missing_ok=True)
         for work in compatibility_dirs:cleanup(work,request)
         request.unlink(missing_ok=True)

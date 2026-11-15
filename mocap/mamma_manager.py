@@ -5,18 +5,19 @@ import json
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication,QDialog,QHBoxLayout,QLabel,QPushButton,QTextBrowser,QVBoxLayout,QWidget
 from .paths import ROOT
+from .theme import color, set_tone
 
 
 def runtime_panel(parent):
     panel=QWidget();box=QHBoxLayout(panel);box.setContentsMargins(0,0,0,0)
-    label=QLabel();label.setWordWrap(True);label.setTextFormat(Qt.PlainText)
+    label=QLabel();label.setWordWrap(True);label.setTextFormat(Qt.PlainText);set_tone(label)
     try:
         from .mamma_runtime import configuration
         cfg=configuration()
         label.setText('MAMMA runtime: Ready' if cfg.get('version')==3 else 'MAMMA runtime: Configured separately')
         label.setToolTip('Python: '+cfg['python']+'\nEngine: '+cfg['engine']+'\nThis environment is isolated from the single-video models.')
     except (OSError,RuntimeError,ValueError) as error:
-        label.setText('MAMMA runtime: Setup required');label.setToolTip(str(error));label.setStyleSheet('color:#ffb45c')
+        label.setText('MAMMA runtime: Setup required');label.setToolTip(str(error));set_tone(label,'warning')
     button=QPushButton('Runtime Setup...')
     button.setToolTip('Show the separate MAMMA runtime installation steps, disk requirements and license conditions. Model weights are installed in the table below.')
     button.clicked.connect(lambda:setup_instructions(parent))
@@ -27,7 +28,7 @@ def runtime_panel(parent):
 def setup_instructions(parent):
     dialog=QDialog(parent);dialog.setWindowTitle('MAMMA Runtime Setup');dialog.resize(690,530)
     layout=QVBoxLayout(dialog);text=QTextBrowser();text.setOpenExternalLinks(True)
-    text.document().setDefaultStyleSheet('a { color: #8ed2ff; text-decoration: underline; }')
+    text.document().setDefaultStyleSheet('a { color: '+color('link')+'; text-decoration: underline; }')
     report={}
     try:report=json.loads((ROOT/'.setup/mamma-install-report.json').read_text(encoding='utf-8'))
     except (OSError,ValueError):pass

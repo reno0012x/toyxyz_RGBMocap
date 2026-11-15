@@ -56,10 +56,10 @@ def prepare_cameras(root,rows):
     return path
 
 
-def load_scene(root,kind,cancelled):
+def load_scene(root,kind,cancelled,*,inspect_only=False):
     from .scene_data import PeopleScene,SceneTake
-    from .scene_camera import take_projects
-    from .people_store import load_people
+    from .scene_camera import VERSION, take_projects
+    from .people_store import load_people, media_receipt
     from .preview_data import mapped_array,motion_summary,LoadCancelled
     from .bone_overlay import open_preview
     from .motion_tools import result_is_current
@@ -67,8 +67,15 @@ def load_scene(root,kind,cancelled):
     scene=PeopleScene(root,dict(floor=0.))
     usable=[(i,p) for i,p in rows if artifacts_current(p,kind) and result_is_current(p,kind,ignore_contacts=True)]
     if not usable:return scene
-    prepare_cameras(root,rows)
-    scene.reference=json.loads((root/'people_scene.json').read_text(encoding='utf-8'))
+    reference_path = root/'people_scene.json'
+    if inspect_only:
+        if not reference_path.is_file():
+            raise ValueError('Saved FlowHMR scene cameras are missing. Open the project in RGB MoCap to prepare them.')
+    else:
+        prepare_cameras(root,rows)
+    scene.reference=json.loads(reference_path.read_text(encoding='utf-8'))
+    if inspect_only and (scene.reference.get('version') != VERSION or scene.reference.get('input') != media_receipt(root)):
+        raise ValueError('Saved FlowHMR scene cameras are outdated. Open the project in RGB MoCap to prepare them.')
     from .scene_floor import current_resolution
     resolved=current_resolution(root)
     if resolved:scene.reference['floor']=resolved['floor'];scene.contact_floor=resolved['floor']

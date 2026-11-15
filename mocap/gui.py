@@ -28,7 +28,8 @@ from .motion_tools import MOTION_TOOLS, selected_export, RESULTS, result_kind, r
 
 STAGES = {"prepare": "Prepare Video", "track": "Track Actor", "pva": "Analyze 2D", "gvhmr": "Initial 3D Reconstruction", "refine": "Refine Motion", "export": "Export", "download": "Model Manager", "diagnose": "Check System"}
 
-from .theme import STYLE
+from .theme import appearance, color, set_tone, themed_html, transport_icon
+from .i18n import tr
 STAGES["mesh"] = "Prepare SMPL-X Mesh"
 STAGES['rig']='Prepare Bone Preview'
 STAGES['save_fbx']='Save FBX'
@@ -76,7 +77,7 @@ class ModelDownloadDialog(QDialog):
         self.browser.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         self.browser.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.browser.setTextInteractionFlags(Qt.TextBrowserInteraction)
-        self.browser.setHtml(manual_instructions_html(key))
+        self.browser.setHtml(themed_html(manual_instructions_html(key)))
         self.browser.anchorClicked.connect(QDesktopServices.openUrl)
         layout.addWidget(self.browser)
         self.import_status = QLabel()
@@ -99,7 +100,14 @@ class ModelDownloadDialog(QDialog):
         self.status_timer = QTimer(self)
         self.status_timer.setInterval(100)
         self.status_timer.timeout.connect(self.sync_import_status)
+        appearance().changed.connect(self.refresh_appearance)
         self.sync_import_status()
+
+    def refresh_appearance(self, *_):
+        from .models import manual_instructions_html
+        position = self.browser.verticalScrollBar().value()
+        self.browser.setHtml(themed_html(manual_instructions_html(self.model_key)))
+        self.browser.verticalScrollBar().setValue(position)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -152,7 +160,7 @@ class ModelsDialog(QDialog):
         self.models = sorted((model for model in MODELS_LIST if model.key in keys),
                              key=lambda model: not bool(model.drive_id or model.download_url))
         self.setWindowTitle(f"{self.tool.label} Model Manager")
-        self.resize(850, min(540, max(360, self.screen().availableGeometry().height() - 80)))
+        self.resize(960, min(620, max(360, self.screen().availableGeometry().height() - 80)))
         layout = QVBoxLayout(self)
         description = QLabel(f"Models for {self.tool.label} and compatible add-ons.\nUse Auto Download for public files, or Manual Download and Import for any model.\nRegistered body model files are not redistributed by this app.")
         description.setWordWrap(True)
@@ -180,6 +188,9 @@ class ModelsDialog(QDialog):
                 '<a style="color:#8ed2ff" href="https://huggingface.co/nvidia/GEM-X">GEM-X</a> · '
                 '<a style="color:#8ed2ff" href="https://huggingface.co/nvidia/SOMA-X">SOMA-X</a> · '
                 '<a style="color:#8ed2ff" href="https://github.com/open-mmlab/mmpose/tree/main/projects/rtmpose">Detector</a>')
+            self._runtime_note_html = note.text()
+            self.runtime_note = note
+            note.setText(themed_html(self._runtime_note_html))
             note.setWordWrap(True)
             note.setOpenExternalLinks(True)
             layout.addWidget(note)
@@ -192,15 +203,17 @@ class ModelsDialog(QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setColumnWidth(0, 300)
         self.table.setColumnWidth(1, 130)
+        self.table.verticalHeader().setDefaultSectionSize(42)
         layout.addWidget(self.table)
         self.task_status = QTextBrowser()
+        self.task_status.setProperty('i18nPlainText', True)
         self.task_status.setFixedHeight(64)
         self.task_status.setOpenLinks(False)
         self.task_status.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         self.task_status.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.task_status.setStyleSheet(
             'QTextBrowser { font-family:"' + QApplication.font().family() + '"; font-size:12px; padding:4px; }')
-        self.task_status.setPlainText("Ready to download or import models.")
+        self.task_status.setPlainText(tr("Ready to download or import models."))
         layout.addWidget(self.task_status)
         self.task_progress = QProgressBar()
         self.task_progress.setTextVisible(False)
@@ -214,6 +227,7 @@ class ModelsDialog(QDialog):
         actions.addWidget(self.cancel_task)
         actions.addStretch()
         self.download_all = QPushButton("Download All")
+        self.download_all.setObjectName('primary')
         self.download_all.setToolTip(tooltip_text(
             "Download missing public model files. Files requiring registration must be downloaded manually and imported. Completed downloads are kept if you cancel or retry."))
         self.download_all.clicked.connect(self.start_download_all)
@@ -229,7 +243,15 @@ class ModelsDialog(QDialog):
         self.status_timer = QTimer(self)
         self.status_timer.setInterval(100)
         self.status_timer.timeout.connect(self.sync_task_status)
+        appearance().changed.connect(self.refresh_appearance)
         self.refresh()
+
+    def refresh_appearance(self, *_):
+        self._status_state = None
+        if hasattr(self, 'runtime_note'):
+            self.runtime_note.setText(themed_html(self._runtime_note_html))
+        self.refresh()
+        self.sync_task_status()
 
     def refresh(self):
         from .models import STAGE_REQUIREMENTS
@@ -243,7 +265,7 @@ class ModelsDialog(QDialog):
                     item = QTableWidgetItem(); self.table.setItem(i, column, item)
                 item.setText(text)
                 if column==0:item.setToolTip(str(model.path))
-                item.setForeground(QColor("#d5d5d5" if available else "#ffb45c"))
+                item.setForeground(QColor(color('text' if available else 'warning')))
                 font = item.font(); font.setBold(not available); item.setFont(font)
             cell = self.table.cellWidget(i, 2)
             if cell is None or cell.property("model_key") != model.key:
@@ -304,10 +326,7 @@ class ModelsDialog(QDialog):
                 index = min(self._batch_total, max(1, self._batch_total - len(w.jobs)))
                 message = f"Model {index}/{self._batch_total}: " + message
             self.task_status.setPlainText(message if len(message) <= 4096 else message[:4096] + "\nSee Console for the complete message.")
-            self.task_status.setStyleSheet(
-                'QTextBrowser { font-family:"' + QApplication.font().family() +
-                '"; font-size:12px; padding:4px;' +
-                ('color:#ffb45c;' if w.failed else '') + ' }')
+            set_tone(self.task_status, 'error' if w.failed else '')
             if active:
                 self.task_progress.setRange(w.progress.minimum(), w.progress.maximum())
                 self.task_progress.setValue(w.progress.value())
@@ -315,10 +334,10 @@ class ModelsDialog(QDialog):
                 self.task_progress.setRange(0, 100)
                 self.task_progress.setValue(0 if w.failed or w.cancelled else 100)
         elif w.busy:
-            self.task_status.setPlainText("Another task is running. You can still open manual download instructions.")
+            self.task_status.setPlainText(tr("Another task is running. You can still open manual download instructions."))
             self.task_progress.setRange(0, 0)
         else:
-            self.task_status.setPlainText("Ready to download or import models.")
+            self.task_status.setPlainText(tr("Ready to download or import models."))
             self.task_progress.setRange(0, 100); self.task_progress.setValue(0)
 
     def start_model_jobs(self, jobs):
@@ -383,8 +402,9 @@ from .pear_ui import PearWorkspace
 from .preview_export_ui import PreviewExportWorkspace
 
 class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWorkspace,MammaWorkspace,CharacterWorkspace,ModelWorkspace,ProjectSaving,PeopleWorkspace,StreamWorkspace,QMainWindow):
-    def __init__(self, video: Path | None = None):
+    def __init__(self, video: Path | None = None, *, inspect_only=False):
         super().__init__()
+        self.inspect_only = inspect_only
         self.setWindowTitle("RGB MoCap | Motion Workspace")
         self.resize(1440, 880)
         self.setMinimumSize(1100, 700)
@@ -441,6 +461,10 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWor
         self.timer.setTimerType(Qt.PreciseTimer)
         self.timer.setInterval(33)
         self.timer.timeout.connect(self.next_frame)
+        from .bone_editor_controller import BoneEditorController
+        from .bone_editor_view import BoneEditorView
+        self.bone_editor_controller = BoneEditorController(self, self.bone_editor)
+        self.motion_view.bone_editor_view = BoneEditorView(self.motion_view, self.bone_editor_controller)
         self.shortcuts = []
         for key, action in [("Space", self.toggle_play), ("Left", lambda: self.step_frames(-1)),
                             ("Right", lambda: self.step_frames(1)),
@@ -466,6 +490,13 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWor
         self.select_model()
         if video:
             self.load_video(video)
+
+    def refresh_appearance(self, *_):
+        self.play_icon = transport_icon('play')
+        self.pause_icon = transport_icon('pause')
+        self.set_playback_indicator(self.timer.isActive())
+        self.video_view.update()
+        self.motion_view.update()
 
     @read_only_checks
     def update_readiness(self):
@@ -499,7 +530,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWor
         if unavailable:
             noun = "model" if len(unavailable) == 1 else "models"
             text += f"\nWarning: {len(unavailable)} required {noun} missing.\nOpen Model Manager to download or import."
-        self.readiness.setStyleSheet("color:#ffb45c; font-weight:600;" if unavailable else "")
+        set_tone(self.readiness, 'warning' if unavailable else '')
         self.readiness.setToolTip(tooltip_text("Missing required models:\n" + "\n".join(model.name for model in unavailable) if unavailable else ""))
         self.readiness.setText(text)
         for button in (self.models_button, self.analyze_button, self.run_button):
@@ -1247,7 +1278,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWor
         self.log.append(message(value))
 
     def start_jobs(self, jobs, refresh_characters=False):
-        if self.busy:
+        if self.inspect_only or self.busy:
             return
         jobs=list(jobs)
         from .resource_safety import message
@@ -1823,7 +1854,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWor
         if corrected and available and not pending and not result_is_current(self.project,self.active_result):notices.append('The last applied correction is outdated or unavailable. Apply Correction before export.')
         self.preview_help.setText(help_text)
         self.correction_note.setText('\n'.join(dict.fromkeys(notices)));self.correction_note.setVisible(bool(notices))
-        if available and self.motion_view.target_asset is None and not self.busy and os.environ.get('QT_QPA_PLATFORM')!='offscreen' and (self.project/RESULTS[base_result(self.active_result)][0]).is_file():
+        if not self.inspect_only and available and self.motion_view.target_asset is None and not self.busy and os.environ.get('QT_QPA_PLATFORM')!='offscreen' and (self.project/RESULTS[base_result(self.active_result)][0]).is_file():
             token=(str(self.project),self.active_result,self.preview_signature)
             attempts=getattr(self,'_rig_attempts',deque(maxlen=16))
             if token not in attempts:
@@ -1872,6 +1903,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWor
         from .storage import atomic_json
         request=self.project/('.fbx-export-'+uuid.uuid4().hex+'.json')
         rows=[]
+        export_targets=[]
         options=getattr(self,'_source_export_options',{})
         compatible=options.get('format','fbx')=='fbx' and options.get('fbx_compatibility',False)
         if getattr(self,'_source_export_options',{}).get('format')=='blend':
@@ -1880,6 +1912,11 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWor
         try:
             for project,kind,source,target in files:
                 row=dict(project=str(project),kind=kind,source=str(source),target=str(target))
+                if 'frame_start' in options:
+                    from .export_range import source_slice
+                    selected=source_slice(self,project,kind,options['frame_start'],options['frame_end'])
+                    if selected is None:continue
+                    row['frame_slice']=selected
                 row['rig_name']=self.export_person_name(project)
                 row['prepend_tpose']=getattr(self,'_source_export_options',{}).get('prepend_tpose',False)
                 row['bvh_profile']=getattr(self,'_source_export_options',{}).get('bvh_profile','generic')
@@ -1898,11 +1935,15 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWor
                     from .scene_export import context
                     row['scene']=context(self.people_root,project)
                 rows.append(row)
+                export_targets.append(target)
         except (OSError,ValueError,KeyError) as error:
             self.status.setText('Cannot export shared scene: '+str(error));return
+        if not rows:
+            from .i18n import tr
+            self.status.setText(tr('The selected frames do not contain saved motion.'));return
         atomic_json(request,rows)
-        self._motion_export_targets=[str(target) for _,_,_,target in files]
-        self._fbx_export_cleanup=(request,[target.with_name('.'+target.name+'.rgbmocap-'+request.stem+'.partial') for _,_,_,target in files])
+        self._motion_export_targets=[str(target) for target in export_targets]
+        self._fbx_export_cleanup=(request,[target.with_name('.'+target.name+'.rgbmocap-'+request.stem+'.partial') for target in export_targets])
         stage='copy_bvh' if getattr(self,'_source_export_options',{}).get('format','fbx')=='bvh' else 'save_fbx'
         if getattr(self,'_source_export_options',{}).get('format')=='blend':
             from .blend_support import partial
@@ -1958,6 +1999,7 @@ class MainWindow(PreviewExportWorkspace,PearWorkspace,GemXWorkspace,PromptHMRWor
         if self.character_process is not None:
             self.cancel_character();self.character_process.waitForFinished(5000)
         self.character_loader.close()
+        self.bone_editor_controller.close()
         self.task_timer.stop()
         if self.workspace_root is not None:
             try:self.remember_workspace_model()

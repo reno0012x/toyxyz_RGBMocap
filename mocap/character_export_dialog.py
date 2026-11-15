@@ -1,9 +1,10 @@
 """Export choices for an already baked character."""
 from PySide6.QtWidgets import QDialog,QVBoxLayout,QFormLayout,QComboBox,QCheckBox,QLabel,QDialogButtonBox
+from .export_range_controls import ExportFrameRange
 
 
 class CharacterExportDialog(QDialog):
-    def __init__(self,kind,parent=None):
+    def __init__(self,kind,parent=None,*,frame_count=None,current_frame=1):
         super().__init__(parent)
         self.setWindowTitle('Export Character')
         self.setMinimumWidth(max(440,self.fontMetrics().horizontalAdvance('M')*32))
@@ -11,6 +12,11 @@ class CharacterExportDialog(QDialog):
         self.format=QComboBox();self.format.addItem('FBX (.fbx)','fbx')
         if kind=='pmx':self.format.addItem('VMD (.vmd)','vmd')
         form.addRow('Format',self.format)
+        self.frame_range = ExportFrameRange(frame_count, current_frame) if frame_count else None
+        if self.frame_range:
+            if parent is not None and hasattr(parent,'slider'):
+                self.frame_range.use_timeline_selection(parent.slider)
+            layout.addWidget(self.frame_range)
         self.mesh=QCheckBox('Include character mesh');self.mesh.setChecked(True)
         self.mesh.setToolTip('Checked: save the character mesh and skeleton animation. Unchecked: save only the skeleton and animation.')
         layout.addWidget(self.mesh)
@@ -21,6 +27,8 @@ class CharacterExportDialog(QDialog):
 
     def update_format(self):
         vmd=self.format.currentData()=='vmd';self.mesh.setVisible(not vmd)
+        if self.frame_range:
+            self.frame_range.setVisible(not vmd)
         self.note.setText('Motion only, sampled at 30 fps for the same PMX model. Body and finger animation is saved; facial animation and physics are not generated.' if vmd else 'Save the retargeted motion. Each take is saved as a separate file.')
         self.layout().activate()
         self.fit_note()
@@ -34,4 +42,8 @@ class CharacterExportDialog(QDialog):
         self.fit_note()
 
     def options(self):
-        return dict(format=self.format.currentData(),include_mesh=self.format.currentData()=='fbx' and self.mesh.isChecked())
+        fmt = self.format.currentData()
+        options = dict(format=fmt, include_mesh=fmt == 'fbx' and self.mesh.isChecked())
+        if fmt == 'fbx' and self.frame_range:
+            options.update(self.frame_range.options())
+        return options

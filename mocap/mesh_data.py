@@ -6,6 +6,7 @@ It is created only from the user's imported body model, never bundled publicly.
 from pathlib import Path
 import os
 import json
+import hashlib
 import numpy as np
 from .storage import atomic_json
 
@@ -53,7 +54,11 @@ def prepare_mesh_preview(project, model_path=None, kinds=None):
         if not source.exists():
             continue
         source_stat = source.stat()
-        target = project / f"{kind}_mesh-v{MESH_VERSION}-{source_stat.st_size}-{source_stat.st_mtime_ns}-{stat.st_mtime_ns}.npy"
+        # Keep immutable cache and temporary paths short on Windows. Expanded
+        # stat fields can exceed MAX_PATH inside multi-person take folders.
+        identity = (source_stat.st_size, source_stat.st_mtime_ns, stat.st_size, stat.st_mtime_ns)
+        token = hashlib.sha256(repr(identity).encode('ascii')).hexdigest()[:16]
+        target = project / f"{kind}_mesh-v{MESH_VERSION}-{token}.npy"
         metadata = project / f"{kind}_mesh.json"
         if metadata.exists():
             info = json.loads(metadata.read_text(encoding="utf-8"))

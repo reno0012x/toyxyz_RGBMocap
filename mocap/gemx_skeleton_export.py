@@ -7,6 +7,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from .blend_support import Inputs
+from .export_frame_range import checked_frame_slice
 from .export_options import centered_transform
 from .gemx_correct import KIND, selected
 from .gemx_result import ASSET, FPS, JOINT_COUNT, POSE, RECEIPT, load_rig, manifest
@@ -49,7 +50,8 @@ def write(path, row, source, destinations, fmt, progress):
     try:
         if pose.shape != (manifest(project)['frames'], JOINT_COUNT, 4, 4) or pose.dtype != np.float32:
             raise ValueError('Invalid SOMA animation dimensions.')
-        frames = pose.astype(float)
+        requested = row.get('frame_slice') if fmt == 'fbx' else None
+        frames = pose[checked_frame_slice(requested, len(pose))].astype(float)
     finally:
         pose._mmap.close()
     if not np.isfinite(frames).all():

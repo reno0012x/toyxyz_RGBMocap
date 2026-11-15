@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import bpy
 import addon_utils
-from .mapping import A, PARENTS, body_mapping, body_trajectory_root
+from .mapping import A, PARENTS, body_mapping, body_trajectory_root, fbx_body_mapping
 from .file_paths import io_path, save_blend
 
 
@@ -16,13 +16,13 @@ def report(message):
 
 def import_character(filename, out):
     Path(io_path(out)).mkdir(parents=True,exist_ok=True)
-    kind={'.fbx':'mixamo','.vrm':'vrm','.pmx':'pmx'}[filename.suffix.lower()]
+    kind={'.fbx':'fbx','.vrm':'vrm','.pmx':'pmx'}[filename.suffix.lower()]
     bpy.ops.wm.read_factory_settings(use_empty=True)
     addons=Path(__file__).resolve().parents[2]/'third_party/character_import'
     sys.path.insert(0,str(addons))
     semantic={}
     report('Importing '+filename.name)
-    if kind=='mixamo':
+    if kind=='fbx':
         bpy.ops.import_scene.fbx(filepath=str(filename),automatic_bone_orientation=False,use_prepost_rot=True)
     elif kind=='vrm':
         addon_utils.enable('io_scene_vrm',default_set=True,persistent=False)
@@ -49,8 +49,12 @@ def import_character(filename, out):
     arms=[o for o in bpy.context.scene.objects if o.type=='ARMATURE']
     if len(arms)!=1:raise ValueError('Import one humanoid armature per character file.')
     arm=arms[0]
-    mapping=body_mapping(kind,arm.data.bones.keys(),semantic)
-    trajectory_root=body_trajectory_root({b.name:b.parent.name if b.parent else None for b in arm.data.bones},mapping)
+    parents={b.name:b.parent.name if b.parent else None for b in arm.data.bones}
+    if kind=='fbx':
+        kind,mapping=fbx_body_mapping(parents)
+    else:
+        mapping=body_mapping(kind,parents,semantic)
+    trajectory_root=body_trajectory_root(parents,mapping)
     for o in bpy.context.scene.objects:
         o.animation_data_clear()
         if o.type=='MESH':
@@ -178,9 +182,12 @@ def preview(out,arm,keyed,n):
 def main(args):
     mode,folder,*rest=args;out=Path(folder)
     if mode=='import':import_character(Path(rest[0]),out)
+    elif mode=='bone_editor_prepare':
+        from .bone_editor_io import prepare
+        prepare(out,Path(rest[0]))
     elif mode=='textures':
         kind=json.loads(Path(io_path(out/'import.json')).read_text(encoding='utf8'))['kind']
-        if kind not in {'mixamo','vrm','pmx'}:raise ValueError('Unsupported character kind')
+        if kind not in {'mixamo','unreal','vrm','pmx'}:raise ValueError('Unsupported character kind')
         bpy.ops.wm.open_mainfile(filepath=io_path(out/f'{kind}-rest.blend'),load_ui=False)
         from .blender_textures import extract
         extract(out)
@@ -203,9 +210,17 @@ def main(args):
         options=json.loads(rest[4]) if len(rest)>4 else {}
         fmt=options.get('format','fbx')
         if fmt not in {'fbx','vmd'}:raise ValueError('Unsupported character export format')
+        frame_slice=options.get('frame_slice')
+        if frame_slice is not None and fmt!='fbx':
+            raise ValueError('Frame range export is available for FBX.')
         kind=json.loads(Path(io_path(folder/'import.json')).read_text(encoding='utf8'))['kind']
         if fmt=='vmd':
             if kind!='pmx':raise ValueError('VMD export requires a PMX character')
+            from mocap.bone_animation import load_export_layer
+            edits=options.get('bone_edits')
+            if edits is None:edits=load_export_layer(folder)
+            if edits and edits.get('enabled') and edits.get('tracks'):
+                raise ValueError('Bone edit layers currently export to FBX. Choose FBX to retain these edits.')
             from .vmd_export import export_vmd
             export_vmd(folder,target,transform,rest[3])
             return
@@ -214,6 +229,17 @@ def main(args):
         arm.name=rest[3]
         info=json.loads(Path(io_path(folder/'bake.json')).read_text(encoding='utf8'))
         kind=json.loads(Path(io_path(folder/'import.json')).read_text(encoding='utf8'))['kind']
+        from .bone_editor_io import bake_edits
+        edited_bones=bake_edits(arm,folder,options.get('bone_edits'))
+        if frame_slice is not None:
+            if (not isinstance(frame_slice,list) or len(frame_slice)!=2
+                    or any(type(index) is not int for index in frame_slice)
+                    or not 0<=frame_slice[0]<frame_slice[1]<=info['frames']):
+                raise ValueError('Selected frames are outside the baked character take.')
+            scene=bpy.context.scene
+            scene.frame_start=frame_slice[0]+1
+            scene.frame_end=frame_slice[1]
+            scene.frame_set(scene.frame_start)
         if transform is not None:
             C=np.eye(4);C[:3,:3]=A
             M=Matrix((C@np.asarray(transform)@C.T).tolist())
@@ -226,7 +252,7 @@ def main(args):
         bpy.context.view_layer.objects.active=arm
         temp=target.with_name('.'+target.stem+'-'+uuid.uuid4().hex+'.partial.fbx')
         try:
-            with body_only_sampler(arm,set(info['keyed_bones'])|body_dependencies(kind,arm)):
+            with body_only_sampler(arm,set(info['keyed_bones'])|body_dependencies(kind,arm)|edited_bones):
                 # Explicit terminal markers keep Blender's Ignore Leaf Bones
                 # option from removing real terminal finger bones.
                 bpy.ops.export_scene.fbx(filepath=io_path(temp),use_selection=True,object_types=types,add_leaf_bones=True,

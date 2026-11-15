@@ -1,6 +1,7 @@
 """Native live mesh/grid pass, independent of offline Qt overlay state."""
 import numpy as np
-from PySide6.QtGui import QMatrix4x4
+from PySide6.QtGui import QMatrix4x4, QColor, QVector3D
+from ..theme import color as ui_color
 from PySide6.QtOpenGL import QOpenGLBuffer,QOpenGLVertexArrayObject,QOpenGLShader
 from ..rig_gl import RigRenderer
 from ..mesh_gl import MeshRenderer
@@ -15,7 +16,8 @@ out vec3 lineColor;
 void main(){gl_Position=mvp*vec4(position,1);lineColor=tint;}'''
 FRAGMENT='''#version 430 core
 in vec3 lineColor;out vec4 color;
-void main(){color=vec4(lineColor,1);}'''
+uniform vec3 minorTint;uniform vec3 majorTint;
+void main(){vec3 c=lineColor;if(abs(c.r-c.g)<0.0001 && abs(c.g-c.b)<0.0001)c=mix(minorTint,majorTint,step(0.30,c.r));color=vec4(c,1);}'''
 
 class LiveRenderer:
     def __init__(self,view):
@@ -37,11 +39,14 @@ class LiveRenderer:
     def paint(self,view):
         gl=self.gl;gl.glDisable(0x0C11);gl.glDisable(0x0B90);gl.glDisable(0x0BE2)
         gl.glColorMask(True,True,True,True);gl.glDepthMask(True);gl.glStencilMask(0xffffffff)
-        gl.glClearColor(.2196,.2196,.2196,1.);gl.glClear(0x4000|0x100|0x400)
+        background=QColor(ui_color('canvas'))
+        gl.glClearColor(background.redF(),background.greenF(),background.blueF(),1.);gl.glClear(0x4000|0x100|0x400)
         if view.show_grid:
             eye,basis=view._paint_camera;matrix=np.eye(4);matrix[:3,:3]=basis*np.array([[1],[1],[-1]]);matrix[:3,3]=-matrix[:3,:3]@eye
             projection=QMatrix4x4();projection.perspective(40,view.width()/max(1,view.height()),.03,2000)
             self.program.bind();self.program.setUniformValue('mvp',projection*QMatrix4x4(*matrix.reshape(-1).tolist()))
+            for name,token in (('minorTint','grid_minor'),('majorTint','grid_major')):
+                tint=QColor(ui_color(token));self.program.setUniformValue(name,QVector3D(tint.redF(),tint.greenF(),tint.blueF()))
             gl.glDisable(0x0B71);self.vao.bind();gl.glDrawArrays(0x1,0,self.count);self.vao.release();self.program.release()
         if view.live_data is None or view.live_asset is None:return
         if view.live_asset.get('render_mode')!='bones':

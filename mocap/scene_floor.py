@@ -47,7 +47,7 @@ def save_config(root,options):
     return options
 
 
-def ensure_config(root):
+def config_for_preview(root):
     root=Path(root);saved=read_config(root)
     if saved is not None:return saved
     # Migrate from the reference actor, never from whichever row was selected.
@@ -56,7 +56,11 @@ def ensure_config(root):
         record=read_people_json(reference)
         manifest=safe_child(root,record['anchor'])/'project.json'
         if manifest.exists():options=read_people_json(manifest).get('correction',{})
-    return save_config(root,options)
+    return floor_options(options)
+
+
+def ensure_config(root):
+    return save_config(root, config_for_preview(root))
 
 
 def inputs(root):

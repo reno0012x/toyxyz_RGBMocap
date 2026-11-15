@@ -1,11 +1,12 @@
 """PromptHMR optional-runtime readiness and concise installation guidance."""
 from PySide6.QtWidgets import QWidget,QHBoxLayout,QLabel,QPushButton,QDialog,QVBoxLayout,QTextBrowser,QApplication
 from .paths import ROOT
+from .theme import color, set_tone
 import json
 
 
 def runtime_panel(parent):
-    panel=QWidget();layout=QHBoxLayout(panel);layout.setContentsMargins(0,0,0,0);label=QLabel();label.setWordWrap(True)
+    panel=QWidget();layout=QHBoxLayout(panel);layout.setContentsMargins(0,0,0,0);label=QLabel();label.setWordWrap(True);set_tone(label)
     try:
         from .prompthmr_runtime import configuration
         cfg=configuration();label.setText('PromptHMR runtime: Ready');label.setToolTip('Isolated Python: '+cfg['python'])
@@ -14,14 +15,14 @@ def runtime_panel(parent):
             camera_configuration();label.setText(label.text()+'\nMoving camera support: Ready')
         except (OSError,ValueError,RuntimeError):label.setText(label.text()+'\nMoving camera support: Optional setup')
     except (OSError,ValueError,RuntimeError) as error:
-        label.setText('PromptHMR runtime: Setup required');label.setToolTip(str(error));label.setStyleSheet('color:#ffb45c')
+        label.setText('PromptHMR runtime: Setup required');label.setToolTip(str(error));set_tone(label,'warning')
     button=QPushButton('Runtime Setup...');button.setToolTip('Show separate runtime setup, disk space and license requirements. Weights are prepared below.')
     button.clicked.connect(lambda:setup_instructions(parent));layout.addWidget(label,1);layout.addWidget(button);return panel
 
 
 def setup_instructions(parent):
     dialog=QDialog(parent);dialog.setWindowTitle('PromptHMR Runtime Setup');dialog.resize(720,530);layout=QVBoxLayout(dialog)
-    browser=QTextBrowser();browser.setOpenExternalLinks(True);browser.document().setDefaultStyleSheet('a { color:#8ed2ff; text-decoration:underline; }')
+    browser=QTextBrowser();browser.setOpenExternalLinks(True);browser.document().setDefaultStyleSheet('a { color:'+color('link')+'; text-decoration:underline; }')
     size='approximately 6–8 GiB'
     try:
         report=json.loads((ROOT/'.setup/prompthmr-install-report.json').read_text(encoding='utf8'));size=f"{report['installed_bytes']/2**30:.2f} GiB on this PC"

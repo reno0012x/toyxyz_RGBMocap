@@ -182,7 +182,12 @@ class PeopleWorkspace:
             self.sync_correction_floor_preview()
             return
         from .scene_floor import ensure_config,current_resolution
-        options=ensure_config(self.people_root);resolved=current_resolution(self.people_root)
+        if self.inspect_only:
+            from .scene_floor import config_for_preview
+            options = config_for_preview(self.people_root)
+        else:
+            options = ensure_config(self.people_root)
+        resolved=current_resolution(self.people_root)
         self.auto_floor.blockSignals(True);self.floor_height.blockSignals(True);self.correction_mode.blockSignals(True)
         try:
             self.auto_floor.setChecked(options['auto_floor'])
@@ -508,9 +513,15 @@ class PeopleWorkspace:
     @batch_readiness
     def person_selected(self,item,previous=None):
         if self._people_syncing or item is None or self.busy or self.contact_saving:return
-        if isinstance(item.data(Qt.UserRole),str):
+        editor = getattr(self, 'bone_editor_controller', None)
+        ident = item.data(Qt.UserRole)
+        if isinstance(ident,str):
+            if editor:
+                editor.sync_people_selection(ident)
             self.update_readiness();return
-        self.activate_person(item.data(Qt.UserRole))
+        self.activate_person(ident)
+        if editor:
+            editor.sync_people_selection(ident)
         self.update_readiness()
 
     @batch_readiness
@@ -520,7 +531,8 @@ class PeopleWorkspace:
         person=self.current_person()
         if person is None:return
         self.people_state['active']=ident
-        save_people(self.people_root,self.people_state)
+        if not self.inspect_only:
+            save_people(self.people_root,self.people_state)
         if path is None:
             takes=person.get('takes',[])
             relative=takes[-1]['project'] if takes else person['preview']

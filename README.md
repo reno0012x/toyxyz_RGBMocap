@@ -5,6 +5,10 @@
 A native Windows app that turns video into editable human animation. Review and
 export motion with AI processing running locally.
 
+This public fork of [toyxyz/RGB MoCap](https://github.com/toyxyz/toyxyz_RGBMocap)
+adds a bilingual Thai/English workspace, a detachable Bone Editor, frame-range
+FBX export, and a local MCP server for inspecting and editing saved projects.
+
 ## Sample videos
 
 ### Motion capture
@@ -37,7 +41,7 @@ https://github.com/user-attachments/assets/cc0e79bb-ecce-4752-ae14-3b6cea30c810
    in a writable folder where you want to install RGB MoCap, then clone the repository:
 
    ```cmd
-   git clone https://github.com/toyxyz/toyxyz_RGBMocap.git
+   git clone https://github.com/reno0012x/toyxyz_RGBMocap.git
    cd toyxyz_RGBMocap
    ```
 
@@ -67,6 +71,22 @@ Updates reuse recently verified, unchanged runtimes. If PEAR or camera-alignment
 support preparation fails after the base installation succeeds, the base app
 remains usable; rerun `install.cmd` to retry the unavailable support. See
 [verification and repair](docs/USER_GUIDE.md#installation-verification-and-repair).
+
+### Connect Codex over MCP
+
+After running `install.cmd`, open PowerShell in the cloned repository and run:
+
+```powershell
+$repo = (Get-Location).Path
+codex mcp add rgbmocap -- (Join-Path $repo 'runtime\python.exe') -I -X utf8 -B (Join-Path $repo 'tools\rgbmocap_mcp.py')
+codex mcp get rgbmocap
+```
+
+Save your project and close the regular RGB MoCap window before using the tools.
+Open a new Codex chat to load them, then ask Codex to open a saved project using
+its full path. The server runs locally over stdio and opens its own RGB MoCap
+window when you call a tool. See [the MCP guide](docs/CODEX_MCP.md) for all 24
+tools, including frame capture, bone editing, motion references and FBX export.
 
 ### Optional model runtimes
 
@@ -140,7 +160,7 @@ do not put passwords or account tokens in the agent chat.
 
 - Reconstruct one or several people and preview the body mesh and animation bones.
 - Reduce sliding with foot/palm contact correction and editable contact timings.
-- Retarget motion to Mixamo FBX, VRM and PMX humanoid characters.
+- Retarget motion to Mixamo or Unreal humanoid FBX, VRM and PMX characters.
 - Export source animation as FBX or BVH (Generic/Blender or 3ds Max Biped), with optional leading T-pose, per-person origin placement and symmetrical rest pose; export characters as FBX with or without meshes,
   or PMX character motion as VMD for MMD.
 - Export portable Blender projects with source animation, video and saved cameras; MAMMA can include animated body meshes and every camera.
@@ -254,6 +274,7 @@ be smaller. Batch selection and OOM retry messages appear in Console and CMD.
 ## Documentation
 
 - [User guide: installation, controls and settings](docs/USER_GUIDE.md)
+- [Local MCP setup and tool reference](docs/CODEX_MCP.md)
 - [Model guides: files, defaults, options and limitations](docs/models/README.md)
 - [Research papers and citations](docs/CITATIONS.md)
 - [Recorded processing time, VRAM and RAM](docs/USER_GUIDE.md#recorded-processing-time-and-vram)

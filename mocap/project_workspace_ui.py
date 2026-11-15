@@ -52,7 +52,7 @@ class ModelWorkspace:
                     for key in ('yaw','pitch','distance','pan','scene_center')},'target':self.motion_view.target().tolist()})
 
     def remember_workspace_model(self):
-        if getattr(self,"_pear_active",False):return
+        if self.inspect_only or getattr(self,"_pear_active",False):return
         root=self.workspace_root
         if root is None:return
         if self.project is not None:
@@ -126,7 +126,8 @@ class ModelWorkspace:
             self._workspace_loading=True
             try:
                 if (target/'project.json').is_file():
-                    self.load_project(target)
+                    if not self.load_project(target) and self.inspect_only:
+                        return False
                 else:
                     self.clear_preview();self.reset_people();self.project=None
                     self.video_view.set_observations({})
@@ -139,7 +140,8 @@ class ModelWorkspace:
                     self.status.setText('MAMMA inputs loaded. Prepare its runtime and models in Model Manager, then Reconstruct 3D.' if model=='mamma' else
                         f'{self.model_choice.currentText()} has no saved motion in this project. Use Reconstruct 3D.')
             finally:self._workspace_loading=False
-            workspace.set_active(root,model,target if (target/'project.json').is_file() else None,view)
+            if not self.inspect_only:
+                workspace.set_active(root,model,target if (target/'project.json').is_file() else None,view)
             self._workspace_pending_view=view
             self.restore_workspace_view(view)
             self.setWindowTitle('RGB MoCap | '+root.name)
@@ -178,5 +180,5 @@ class ModelWorkspace:
         root=workspace.root_for(project,state)
         self.workspace_root=root
         self._workspace_video_reference=root is not None
-        if root is not None:
+        if root is not None and not self.inspect_only:
             workspace.set_active(root,state['pipeline']['model'],project)

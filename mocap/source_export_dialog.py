@@ -1,9 +1,10 @@
 """Source-motion export options; existing character exports remain separate."""
 from PySide6.QtWidgets import QDialog,QVBoxLayout,QFormLayout,QComboBox,QCheckBox,QLabel,QDialogButtonBox,QDoubleSpinBox
+from .export_range_controls import ExportFrameRange
 
 class SourceExportDialog(QDialog):
     def __init__(self,parent=None):
-        super().__init__(parent);self.setWindowTitle('Export');self.setFixedSize(660,400)
+        super().__init__(parent);self.setWindowTitle('Export');self.setMinimumSize(640,400);self.resize(720,500)
         self.model=parent.model_choice.currentData() if parent is not None and hasattr(parent,'model_choice') else None
         layout=QVBoxLayout(self);layout.setContentsMargins(18,18,18,18);layout.setSpacing(12)
         form=QFormLayout();form.setVerticalSpacing(12);layout.addLayout(form)
@@ -11,6 +12,10 @@ class SourceExportDialog(QDialog):
         self.format.addItem('FBX (.fbx)','fbx');self.format.addItem('BVH (.bvh)','bvh')
         self.format.addItem('Blender project + video (.blend)','blend')
         form.addRow('Format',self.format)
+        slider=getattr(parent,'slider',None)
+        self.frame_range=ExportFrameRange(slider.maximum()+1,slider.value()+1) if slider else ExportFrameRange(1)
+        if slider is not None:self.frame_range.use_timeline_selection(slider)
+        layout.addWidget(self.frame_range)
         self.profile=QComboBox();self.profile.addItem('Generic / Blender','generic')
         if self.model!='gemx':self.profile.addItem('3ds Max Biped','biped')
         self.profile.setToolTip('Generic / Blender keeps anatomical names and original rotation orders. 3ds Max Biped uses Character Studio names and uniform ZXY rotations. Both keep metre units and Y up.')
@@ -46,6 +51,7 @@ class SourceExportDialog(QDialog):
         fmt=self.format.currentData();blend=fmt=='blend';whole=blend and self.model=='mamma' and self.whole_scene.isChecked()
         self.profile_label.setVisible(fmt=='bvh');self.profile.setVisible(fmt=='bvh')
         self.fbx_compatibility.setVisible(fmt=='fbx')
+        self.frame_range.setVisible(fmt=='fbx')
         self.whole_scene.setVisible(blend and self.model=='mamma');self.tpose.setEnabled(not whole);self.tpose.setVisible(not whole)
         for control in (self.place_at_origin,self.symmetric_rest):control.setVisible(not blend);control.setEnabled(not blend)
         self.animate_camera.setVisible(blend and not whole)
@@ -68,7 +74,9 @@ class SourceExportDialog(QDialog):
         if self.model=='gemx' and self.format.currentData()=='blend':return dict(format='blend',animate_camera=False)
         fmt=self.format.currentData();whole=fmt=='blend' and self.model=='mamma' and self.whole_scene.isChecked()
         value=dict(format='blend_scene' if whole else fmt,bvh_profile=self.profile.currentData() if fmt=='bvh' else 'generic',prepend_tpose=self.tpose.isChecked() and not whole)
-        if fmt=='fbx':value['fbx_compatibility']=self.fbx_compatibility.isChecked()
+        if fmt=='fbx':
+            value['fbx_compatibility']=self.fbx_compatibility.isChecked()
+            value.update(self.frame_range.options())
         value.update(place_at_origin=self.place_at_origin.isChecked() and fmt in ('fbx','bvh'),symmetric_rest=self.model!='gemx' and self.symmetric_rest.isChecked() and fmt in ('fbx','bvh'))
         if fmt=='blend':value.update(animate_camera=self.animate_camera.isChecked(),background_refine=self.background_refine.isChecked() and self.animate_camera.isChecked() and self.model in ('flowhmr','exmr'),camera_translation_scale=self.translation_scale.value())
         return value

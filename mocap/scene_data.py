@@ -157,6 +157,7 @@ class SceneDataLoader(QThread):
     def __init__(self,parent=None):
         super().__init__(parent);self.condition=Condition();self.generation=0
         self.pending=None;self.stopping=False;self.model_cache=None
+        self.inspect_only = getattr(parent, 'inspect_only', False)
 
     def request(self,root,kind,asset=None,cached=None):
         with self.condition:
@@ -175,7 +176,7 @@ class SceneDataLoader(QThread):
         require_supported_project(root)
         if require_supported_project(root).key=='flowhmr':
             from .flow_scene import load_scene
-            return load_scene(root,kind,cancelled)
+            return load_scene(root,kind,cancelled, inspect_only=self.inspect_only)
         if psutil.virtual_memory().available<256*1024**2:
             raise MemoryError('Free at least 256 MiB RAM to open a shared people scene.')
         if (root/'mamma_pending.json').exists():
@@ -188,16 +189,24 @@ class SceneDataLoader(QThread):
         from .paths import MODELS
         needs_floor=read_config(root) is not None and current_resolution(root) is None and (MODELS/'body_models/smplx/SMPLX_NEUTRAL.npz').exists()
         path=root/'people_scene.json'
-        if needs_floor or not path.exists() or any(read_camera(project) is None for _,project in projects):
+        def prepare_saved_cameras():
+            if self.inspect_only:
+                raise ValueError('Saved scene cameras are missing or outdated. Open the project in RGB MoCap to prepare them.')
             prepare_camera_process(root,cancelled)
+
+        if self.inspect_only:
+            # Unresolved contact floor data may still be shown as saved.
+            needs_floor = False
+        if needs_floor or not path.exists() or any(read_camera(project) is None for _,project in projects):
+            prepare_saved_cameras()
         if cancelled():raise LoadCancelled()
         if not path.exists():return PeopleScene(root,dict(floor=0.))
         reference=json.loads(path.read_text(encoding='utf-8'))
         if reference.get('version')!=VERSION or reference.get('input')!=media_receipt(root):
-            prepare_camera_process(root,cancelled);reference=json.loads(path.read_text(encoding='utf-8'))
+            prepare_saved_cameras();reference=json.loads(path.read_text(encoding='utf-8'))
         anchor=read_camera(safe_child(root,reference['anchor']))
         if anchor is None or anchor['sources']!=reference.get('sources'):
-            prepare_camera_process(root,cancelled);reference=json.loads(path.read_text(encoding='utf-8'))
+            prepare_saved_cameras();reference=json.loads(path.read_text(encoding='utf-8'))
         camera_to_scene=np.linalg.inv(validate_transform(reference['world_to_camera']))
         scene=PeopleScene(root,reference)
         resolution=current_resolution(root)

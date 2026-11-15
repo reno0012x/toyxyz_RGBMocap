@@ -66,6 +66,13 @@ class CharacterWorkspace:
     def save_characters(self):atomic_json(self.character_root/'characters/index.json',self.characters)
 
     def selected_character(self):
+        editor = getattr(self, 'bone_editor_controller', None)
+        if editor is not None and editor.is_active():
+            if editor.source_mode:
+                return None
+            chosen = next((c for c in self.characters if c['id'] == editor.character_id), None)
+            if chosen is not None:
+                return chosen
         item=self.people_list.currentItem()
         key=item.data(Qt.UserRole) if item else None
         return next((c for c in getattr(self,'characters',[]) if key=='character:'+c['id']),None)
@@ -76,11 +83,20 @@ class CharacterWorkspace:
             self.status.setText('Character motion is out of date. Apply Correction or retarget it again.');return
         from .person_names import export_stem
         from .character_export_dialog import CharacterExportDialog
-        dialog=CharacterExportDialog(c['kind'],self)
+        from .character_export_range import character_export_takes
+        dialog=CharacterExportDialog(c['kind'],self,
+            frame_count=self.slider.maximum()+1 if self.info else None,
+            current_frame=self.slider.value()+1)
         accepted=dialog.exec();options=dialog.options();dialog.deleteLater()
         if not accepted:return
         extension=options['format'];label=extension.upper()
-        stem=export_stem(c['name']);takes=c['takes']
+        stem=export_stem(c['name'])
+        numbered_takes=character_export_takes(c,options.pop('frame_start',None),options.pop('frame_end',None),
+            timeline_start=self.source_offset,timeline_fps=self.info['fps'] if self.info else None)
+        if not numbered_takes:
+            from .i18n import tr
+            self.status.setText(tr('The selected frames do not contain character motion.'));return
+        takes=[take for _,take in numbered_takes]
         if len(takes)==1:
             name,_=QFileDialog.getSaveFileName(self,'Export Character',stem+'.'+extension,f'{label} (*.{extension})')
             if not name:return
@@ -91,7 +107,7 @@ class CharacterWorkspace:
         else:
             name=QFileDialog.getExistingDirectory(self,'Export Character Takes')
             if not name:return
-            files=[str(Path(name)/(stem+f'_take_{i+1}.{extension}')) for i in range(len(takes))]
+            files=[str(Path(name)/(stem+f'_take_{number}.{extension}')) for number,_ in numbered_takes]
             if any(Path(p).exists() for p in files) and QMessageBox.question(self,'Export Character','Replace existing files with these names?')!=QMessageBox.Yes:return
         self.start_character_job(dict(mode='export',output=str(self.character_path('export-'+uuid.uuid4().hex)),
             animation=str(self.character_path(c['animation'])),takes=takes,files=files,source_name=c['name'],**options))
@@ -302,6 +318,10 @@ class CharacterWorkspace:
             self.character_refresh_queue=[]
             self.status.setText('Character job cancelled.' if self.character_cancelled else 'Character processing failed. See Console.')
             self.log.append(self.character_buffer);self.progress.setRange(0,100);self.progress.setValue(0)
+        controller=getattr(self,'bone_editor_controller',None)
+        if controller is not None:
+            controller.prepared(job, code==0 and complete.is_file() and not self.character_cancelled)
+            controller.refresh()
         self.task_info.setText('');self.update_readiness();self.motion_view.update()
         if job.get('refresh_label'):
             self.next_character_refresh()
@@ -328,12 +348,20 @@ class CharacterWorkspace:
             self.motion_view._camera_initialized=True
         self.motion_view.update()
 
+    def character_visible_in_viewport(self, character):
+        if not character.get('visible', True):
+            return False
+        editor = getattr(self, 'bone_editor_controller', None)
+        return not (editor and editor.is_active() and editor.character_id) or editor.edit_preview(character)
+
     def character_draws(self):
         from bisect import bisect_right
         time_=self.motion_view.scene_time
+        controller=getattr(self,'bone_editor_controller',None)
         for c in self.characters:
-            if not c.get('visible',True):continue
-            path=self.character_path(c['asset']);frame=0;transform=None
+            if not self.character_visible_in_viewport(c):
+                continue
+            path=self.character_path(c['asset']);frame=0;transform=None;context=None
             if c.get('takes'):
                 starts=c.setdefault('_starts',[t['start'] for t in c['takes']])
                 i=bisect_right(starts,time_)-1
@@ -341,8 +369,15 @@ class CharacterWorkspace:
                 if take is not None and time_>=take['start']+take['frames']/take['fps']:take=None
                 if take is None:continue
                 path=self.character_path(c['animation']+'/'+take['folder']);frame=int((time_-take['start'])*take['fps']+1e-6);transform=take.get('transform')
+                if controller is not None:
+                    context=controller.draw_context(c,take)
+                    if context is not None:path=context['cache']
             data=self.character_assets.get(str(path))
             if not data:
                 self.character_loader.request(path,frame,self.character_path(c['asset']));continue
             matrix=self.character_loader.frame(path,frame)
-            if matrix is not None:yield c,data,matrix,frame,transform
+            if matrix is not None:
+                if context is not None:
+                    matrix=controller.draw_palette(context,matrix,frame)
+                    data=dict(data,edit_generation=context['edited_frame'])
+                yield c,data,matrix,frame,transform

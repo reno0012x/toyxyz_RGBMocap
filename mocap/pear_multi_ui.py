@@ -138,7 +138,7 @@ class PearMultiWorkspace:
             button.setFixedHeight(88);button.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed);button.setMinimumWidth(0)
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon);button.setToolTip(title)
             if image is not None:button.setIcon(QIcon(QPixmap.fromImage(image)));button.setIconSize(QSize(100,48))
-            button.setStyleSheet('QToolButton{background:#303030;border:1px solid #555;color:#ddd}QToolButton:checked{border:2px solid #8ac1ff;background:#385571}')
+            button.setObjectName('cameraThumbnail')
             button.clicked.connect(lambda checked=False,i=i:self.pear_select_preview(i))
             self.pear_thumbnail_grid.addWidget(button,i//4,i%4);self.pear_thumbnail_buttons.append(button)
         self.pear_preview=min(self.pear_preview,max(0,len(entries)-1))

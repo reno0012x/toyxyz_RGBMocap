@@ -2,16 +2,19 @@
 from .tooltips import tooltip_text, plain_tooltip
 from .console_log import ConsoleLog
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QWidget, QFrame, QLabel, QPushButton, QComboBox, QCheckBox,
     QVBoxLayout, QHBoxLayout, QGroupBox, QSplitter,
-    QSpinBox, QDoubleSpinBox, QProgressBar, QTextEdit, QMessageBox, QSizePolicy, QStackedWidget)
+    QSpinBox, QDoubleSpinBox, QProgressBar, QTextEdit, QMessageBox, QSizePolicy, QStackedWidget, QToolButton)
 from .viewer import VideoView, MotionView
 from .timeline import TimelineSlider
 from .motion_tools import MOTION_TOOLS
 from .paths import ROOT
 from .correction_settings import PRESETS
 from .sidebar_scroll import SettingsScrollArea
+from .ui_components import AppearanceSwitch, FlowLayout
+from .theme import appearance, transport_icon
+from .i18n import LanguageSelector, localizer
 
 
 class WrappedLabel(QLabel):
@@ -57,18 +60,18 @@ class TooltipHelp(WrappedLabel):
 
 
 class SettingsStack(QStackedWidget):
-    """Hidden model pages must not reserve their height in the sidebar."""
+    """Only the visible page contributes to a stack's preferred size."""
     def __init__(self):
         super().__init__()
         self.currentChanged.connect(lambda _: self.updateGeometry())
 
     def sizeHint(self):
         page=self.currentWidget()
-        return page.sizeHint() if page else QSize(0,0)
+        return page.sizeHint().expandedTo(page.minimumSize()) if page else QSize(0,0)
 
     def minimumSizeHint(self):
         page=self.currentWidget()
-        return page.minimumSizeHint() if page else QSize(0,0)
+        return page.minimumSizeHint().expandedTo(page.minimumSize()) if page else QSize(0,0)
 
 
 def build_workspace(w):
@@ -97,7 +100,7 @@ def build_workspace(w):
         bar.setObjectName("editorHeader")
         bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         header = QHBoxLayout(bar)
-        header.setContentsMargins(9, 3, 6, 3)
+        header.setContentsMargins(10, 5, 8, 5)
         header.addWidget(QLabel(title))
         header.addStretch()
         layout.addWidget(bar)
@@ -107,31 +110,60 @@ def build_workspace(w):
     central = QWidget()
     w.setCentralWidget(central)
     root = QVBoxLayout(central)
-    root.setContentsMargins(4, 3, 4, 3)
-    root.setSpacing(4)
-    top = QHBoxLayout()
+    root.setContentsMargins(12, 8, 12, 6)
+    root.setSpacing(10)
+    toolbar = QFrame()
+    toolbar.setObjectName('workspaceToolbar')
+    top = QHBoxLayout(toolbar)
+    top.setContentsMargins(16, 10, 12, 10)
+    top.setSpacing(12)
+    logo = QLabel()
+    logo.setPixmap(QPixmap(str(ROOT/'assets/rgbmocap-icon.png')).scaled(30, 30, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    top.addWidget(logo)
+    identity = QVBoxLayout()
+    identity.setSpacing(1)
     brand = QLabel("RGB MoCap")
     brand.setObjectName("brand")
-    top.addWidget(brand)
-    workspace = QLabel("Motion Workspace   |")
-    workspace.setObjectName("muted")
-    top.addWidget(workspace)
+    identity.addWidget(brand)
+    workspace = QLabel("Motion workspace")
+    workspace.setObjectName("workspaceSubtitle")
+    identity.addWidget(workspace)
+    top.addLayout(identity)
+    top.addSpacing(14)
     w.filename = QLabel("Open a video or drop it into the workspace")
     w.filename.setObjectName("muted")
+    w.filename.setProperty('i18nDataText', True)
     w.filename.setMinimumWidth(0)
     w.filename.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
     top.addWidget(w.filename, 1)
-    root.addLayout(top)
+    w.toolbar_open = QToolButton()
+    w.toolbar_open.setObjectName('toolbarAction')
+    top.addWidget(w.toolbar_open)
+    w.toolbar_import_character = QToolButton()
+    w.toolbar_import_character.setObjectName('toolbarAction')
+    top.addWidget(w.toolbar_import_character)
+    w.toolbar_models = QWidget()
+    top.addWidget(w.toolbar_models)
+    w.appearance_switch = AppearanceSwitch()
+    top.addWidget(w.appearance_switch)
+    w.language_selector = LanguageSelector()
+    top.addWidget(w.language_selector)
+    w.toolbar_export = QToolButton()
+    w.toolbar_export.setObjectName('toolbarAction')
+    top.addWidget(w.toolbar_export)
+    root.addWidget(toolbar)
 
     main = QSplitter(Qt.Horizontal)
-    main.setHandleWidth(4)
+    main.setHandleWidth(10)
     workspace_split = QSplitter(Qt.Vertical)
     w.workspace_split = workspace_split
-    workspace_split.setHandleWidth(4)
+    workspace_split.setHandleWidth(10)
     editors = QSplitter(Qt.Horizontal)
-    editors.setHandleWidth(4)
+    editors.setHandleWidth(10)
     w.video_view = VideoView()
     w.motion_view = MotionView()
+    w.video_view.setMinimumHeight(180)
+    w.motion_view.setMinimumHeight(180)
     w.video_view.frame_presented.connect(w.present_frame)
     w.video_view.metadata_ready.connect(w.video_ready)
     w.video_view.decode_error.connect(w.video_failed)
@@ -154,7 +186,7 @@ def build_workspace(w):
     w.video_overlay=overlay
     video_header.addWidget(overlay)
     from PySide6.QtWidgets import QStackedWidget
-    camera_stack=QStackedWidget()
+    camera_stack=SettingsStack()
     motion_panel, motion_header = editor("3D Viewport", camera_stack)
     w.bone_overlay=QCheckBox('Bone Overlay')
     w.bone_overlay.setChecked(True)
@@ -162,6 +194,7 @@ def build_workspace(w):
     w.bone_overlay.toggled.connect(w.render_changed)
     motion_header.addWidget(w.bone_overlay)
     w.view_choice = QComboBox()
+    w.view_choice.setProperty('i18nSkipItems', True)
     w.view_choice.setToolTip(tooltip_text('Choose a viewing direction. This changes the camera, not the motion.'))
     w.view_choice.addItems(["Perspective", "Front", "Back", "Right", "Left", "Top", "Bottom", "Camera Preview"])
     from .camera_ui import CameraTools
@@ -177,9 +210,9 @@ def build_workspace(w):
     frame_view.setToolTip('Fit all visible people in the 3D view.')
     w.viewport_footer = QWidget()
     w.viewport_footer.setObjectName("editorHeader")
-    w.viewport_footer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-    viewport_footer = QHBoxLayout(w.viewport_footer)
-    viewport_footer.setContentsMargins(9, 3, 6, 3)
+    w.viewport_footer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+    viewport_footer = FlowLayout(w.viewport_footer, spacing=6)
+    viewport_footer.setContentsMargins(12, 5, 10, 5)
     w.viewport_checks={}
     for label, attribute in (("Floor Grid", "show_grid"), ("Correction Floor", "show_correction_floor"), ("Motion Path", "show_trajectory"),
                              ("Lock", "show_foot_locks"), ("Name", "show_names"), ("Camera", "show_cameras")):
@@ -201,7 +234,6 @@ def build_workspace(w):
     w.follow_actor.setChecked(True)
     w.follow_actor.toggled.connect(w.motion_view.set_follow)
     viewport_footer.addWidget(w.follow_actor)
-    viewport_footer.addStretch()
     motion_panel.layout().addWidget(w.viewport_footer)
     editors.addWidget(video_panel)
     editors.addWidget(motion_panel)
@@ -217,17 +249,45 @@ def build_workspace(w):
     w.slider.contacts_edit_started.connect(w.stop_playback)
     w.slider.contacts_changed.connect(w.foot_contacts_changed)
     w.slider.contacts_reset.connect(w.reset_foot_contacts)
-    timeline_panel, timeline_header = editor("Timeline", w.slider)
+    from .bone_editor_widget import BoneEditorWidget
+    from .bone_editor_dock import BoneEditorWindow, TimelineTabBar
+    from .i18n import tr
+    timeline_stack = SettingsStack()
+    timeline_stack.addWidget(w.slider)
+    w.bone_editor = BoneEditorWidget()
+    timeline_stack.addWidget(w.bone_editor)
+    timeline_panel, timeline_header = editor("Timeline", timeline_stack)
+    timeline_tabs = TimelineTabBar()
+    timeline_tabs.addTab('Timeline')
+    timeline_tabs.addTab('Bone Editor')
+    def update_tab_tooltip(*_):
+        timeline_tabs.setTabToolTip(1, tr('Drag this tab out to open a separate window'))
+    update_tab_tooltip()
+    localizer().changed.connect(update_tab_tooltip)
+    w.timeline_tabs = timeline_tabs
+    title = timeline_header.takeAt(0).widget()
+    title.hide()
+    title.deleteLater()
+    timeline_header.insertWidget(0, timeline_tabs)
+    detach_button = QToolButton()
+    detach_button.setText('↗')
+    detach_button.setToolTip('Open Bone Editor in a separate window')
+    detach_button.setAccessibleName('Open Bone Editor in a separate window')
+    detach_button.setMinimumWidth(32)
+    floating = BoneEditorWindow(w)
+    w.bone_editor_window = floating
+    w.bone_editor_detach_button = detach_button
     w.timeline_panel = timeline_panel
     timeline_panel.setMinimumHeight(260)
     w.timeline_help_dialog = QMessageBox(w)
     w.timeline_help_dialog.setWindowTitle("Timeline Help")
     w.timeline_help_dialog.setTextFormat(Qt.PlainText)
     w.timeline_help_dialog.setText(
-        "Click or drag the frame ruler, or drag the blue frame-number box to seek.\n"
+        "Left-click or left-drag the frame ruler or blue frame-number box to seek.\n"
         "The thin playhead line does not capture clicks.\n"
-        "Wheel: zoom | Shift + wheel or MMB: pan\n\n"
+        "Wheel: zoom | Shift + wheel or MMB on tracks: pan\n\n"
         "Video clip edges: trim the playback and reconstruction range.\n"
+        "Middle-drag across the frame numbers: select a frame range for FBX export. Escape: clear selection.\n"
         "Frame All: fit the full timeline | Reset Trim: restore the full clip.\n\n"
         "L/R foot and L/R hand: drag empty space to add a lock.\n"
         "Drag a lock to move it; drag its edges to resize it.\n"
@@ -242,6 +302,12 @@ def build_workspace(w):
     w.timeline_help_button.setToolTip('Show how to seek, trim and edit contact timings.')
     w.timeline_help_button.clicked.connect(w.timeline_help_dialog.open)
     timeline_header.insertWidget(1, w.timeline_help_button)
+    w.timeline_subtitle = QLabel('Trim clips · review motion · edit contacts')
+    w.timeline_subtitle.setObjectName('muted')
+    w.timeline_subtitle.setMinimumWidth(0)
+    w.timeline_subtitle.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+    timeline_header.insertWidget(2, w.timeline_subtitle, 1)
+    timeline_header.insertWidget(3, detach_button)
     timeline_header.addStretch()
     first = button("|<", lambda: w.step_frames(-w.slider.maximum()), timeline_header)
     first.setObjectName("transport")
@@ -253,8 +319,8 @@ def build_workspace(w):
     w.play_button.setObjectName("transport")
     w.play_button.setFixedWidth(34)
     w.play_button.setIconSize(QSize(16, 16))
-    w.play_icon = QIcon(str(ROOT / "assets/icons/play.svg"))
-    w.pause_icon = QIcon(str(ROOT / "assets/icons/pause.svg"))
+    w.play_icon = transport_icon('play')
+    w.pause_icon = transport_icon('pause')
     w.set_playback_indicator(False)
     w.next_frame_button = button(">", lambda: w.step_frames(1), timeline_header)
     w.next_frame_button.setObjectName("transport")
@@ -288,6 +354,18 @@ def build_workspace(w):
     w.clip_label.setMinimumWidth(0)
     w.clip_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
     action_bar.addWidget(w.clip_label, 1)
+    w.export_selection_label = QLabel()
+    action_bar.addWidget(w.export_selection_label)
+    w.clear_export_selection_button = button('Clear selection', w.slider.clear_export_selection, action_bar)
+    def export_selection_changed():
+        from .i18n import tr
+        selected = w.slider.export_selection
+        w.export_selection_label.setVisible(selected is not None)
+        w.clear_export_selection_button.setVisible(selected is not None)
+        if selected is not None:
+            w.export_selection_label.setText(f"{tr('Selected frames')} {selected[0]+1}–{selected[1]}")
+    w.slider.export_selection_changed.connect(export_selection_changed)
+    export_selection_changed()
     w.reset_footlocks_button=button('Reset Locks',w.reset_foot_contacts,action_bar)
     w.reset_footlocks_button.setToolTip(tooltip_text('Restore automatic foot and hand contact timings for this person. Click Apply Correction to update the motion.'))
     w.timeline_frame_all_button = button("Frame All", w.slider.frame_all, action_bar)
@@ -295,6 +373,71 @@ def build_workspace(w):
     w.reset_trim_button = button("Reset Trim", w.slider.reset_trim, action_bar)
     w.reset_trim_button.setToolTip(tooltip_text("Restore the full clip for playback and reconstruction"))
     timeline_panel.layout().insertWidget(1, actions)
+    def sync_bone_presentation():
+        controller = getattr(w, 'bone_editor_controller', None)
+        if controller:
+            controller.refresh()
+            controller.sync_time()
+            w.update_readiness()
+        w.motion_view.update()
+
+    def bone_editor_is_active():
+        return w.bone_editor.isVisible() and (floating.isVisible() or timeline_tabs.currentIndex() == 1)
+
+    def show_bone_editor():
+        if w.bone_editor.parentWidget() is floating:
+            if floating.isMinimized():
+                floating.showNormal()
+            elif not floating.isVisible():
+                floating.show()
+            floating.raise_()
+            floating.activateWindow()
+        else:
+            timeline_tabs.setCurrentIndex(1)
+
+    def detach_bone_editor(position=None):
+        if w.bone_editor.parentWidget() is floating:
+            show_bone_editor()
+            return
+        timeline_tabs.setCurrentIndex(0)
+        timeline_stack.removeWidget(w.bone_editor)
+        floating.editor_layout.addWidget(w.bone_editor, 1)
+        if position is not None:
+            floating.place_near(position)
+        floating.show()
+        w.bone_editor.show()
+        detach_button.setEnabled(False)
+        sync_bone_presentation()
+
+    def reattach_bone_editor():
+        if w.bone_editor.parentWidget() is not floating:
+            return
+        floating.hide()
+        floating.editor_layout.removeWidget(w.bone_editor)
+        timeline_stack.insertWidget(1, w.bone_editor)
+        detach_button.setEnabled(True)
+        timeline_tabs.setCurrentIndex(1)
+
+    w.bone_editor_is_active = bone_editor_is_active
+    w.show_bone_editor = show_bone_editor
+    w.detach_bone_editor = detach_bone_editor
+    w.reattach_bone_editor = reattach_bone_editor
+    detach_button.clicked.connect(lambda: detach_bone_editor())
+    timeline_tabs.detach_requested.connect(detach_bone_editor)
+    floating.dock_requested.connect(reattach_bone_editor)
+
+    def switch_timeline(index):
+        if index == 1 and w.bone_editor.parentWidget() is floating:
+            timeline_tabs.setCurrentIndex(0)
+            show_bone_editor()
+            return
+        timeline_stack.setCurrentIndex(index)
+        timeline_panel.setMinimumHeight(350 if index == 1 else 260)
+        actions.setVisible(index == 0)
+        w.timeline_help_button.setVisible(index == 0)
+        w.timeline_subtitle.setVisible(index == 0)
+        sync_bone_presentation()
+    timeline_tabs.currentChanged.connect(switch_timeline)
     def frame_range(_, maximum):
         w.frame_number.setMaximum(maximum + 1)
     w.slider.rangeChanged.connect(frame_range)
@@ -308,19 +451,19 @@ def build_workspace(w):
 
     sidebar = QWidget()
     sidebar.setObjectName("modelSidebar")
-    sidebar.setMinimumWidth(235)
-    sidebar.setMaximumWidth(330)
+    sidebar.setMinimumWidth(265)
+    sidebar.setMaximumWidth(350)
     side_layout = QVBoxLayout(sidebar)
-    side_layout.setContentsMargins(4, 0, 4, 0)
-    side_layout.setSpacing(7)
+    side_layout.setContentsMargins(10, 4, 10, 10)
+    side_layout.setSpacing(10)
     scroll = SettingsScrollArea()
     scroll.setObjectName("modelSettings")
     scroll.viewport().setObjectName("modelSettingsViewport")
     scroll.setWidgetResizable(True)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
     content=QWidget();content_layout=QVBoxLayout(content)
-    content_layout.setContentsMargins(4,4,4,8)
-    content_layout.setSpacing(10)
+    content_layout.setContentsMargins(4,4,6,8)
+    content_layout.setSpacing(12)
     selector = group("AI Motion Model", content_layout)
     w.model_choice = QComboBox()
     w.model_choice.setToolTip(tooltip_text('Choose the AI model used to create motion. Open Model Guide for a comparison.'))
@@ -540,6 +683,10 @@ def build_workspace(w):
     setup.addWidget(w.readiness)
     w.models_button = button("Model Manager", w.open_model_manager, setup)
     w.models_button.setToolTip('Download or import the files needed by the selected AI model.')
+    setup.removeWidget(w.models_button)
+    top.replaceWidget(w.toolbar_models, w.models_button)
+    w.toolbar_models.deleteLater()
+    w.toolbar_models = w.models_button
     shared_settings.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Maximum)
     content_layout.addWidget(w.model_pages)
     content_layout.addWidget(shared_settings)
@@ -561,12 +708,12 @@ def build_workspace(w):
     w.cancel_button.setToolTip('Stop the current processing queue. Completed results are kept.')
     w.cancel_button.setEnabled(False)
     w.model_actions.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Maximum)
-    content_layout.addWidget(w.model_actions)
+    side_layout.addWidget(w.model_actions)
     content_layout.addStretch()
     w.settings_scroll=scroll
     w.model_choice.currentIndexChanged.connect(w.select_model)
     main.addWidget(sidebar)
-    main.setSizes([1120, 260])
+    main.setSizes([1100, 310])
     main.setStretchFactor(0, 1)
     main.setStretchFactor(1, 0)
     root.addWidget(main, 1)
@@ -586,6 +733,7 @@ def build_workspace(w):
     w.task_info.setToolTip(tooltip_text('Step left estimates time for the current step; Total left estimates the remaining queue. Estimates appear once enough timing data is available and may change.'))
     footer.addWidget(w.task_info)
     w.log = ConsoleLog()
+    w.log.setObjectName('console')
     from .resource_safety import message
     w.log.append(message(w.resource_safety.isChecked()))
     w.log.setReadOnly(True)
@@ -600,13 +748,18 @@ def build_workspace(w):
 
     file_menu = w.menuBar().addMenu("File")
     w.open_actions = [file_menu.addAction("Open Video...", w.choose_video), file_menu.addAction("Open Project...", w.choose_project)]
+    w.toolbar_open.setDefaultAction(w.open_actions[0])
+    w.toolbar_open.setText('Open video')
     w.import_character_action=file_menu.addAction('Import Character...',w.choose_character)
-    w.import_character_action.setToolTip('Import a Mixamo FBX, VRM or PMX humanoid. Right-click its People row to retarget a source person.')
+    w.import_character_action.setToolTip('Import a Mixamo or Unreal humanoid FBX, VRM or PMX. Right-click its People row to retarget a source person.')
+    w.toolbar_import_character.setDefaultAction(w.import_character_action)
     w.save_project_action = file_menu.addAction('Save Project As...', w.save_project_as)
     w.save_project_action.setShortcut('Ctrl+Shift+S')
     w.save_project_action.setToolTip(tooltip_text('Save a separate project folder with a new name and location, including its video, motion and settings. Continue working in the saved copy.'))
     file_menu.addSeparator()
     w.export_action = file_menu.addAction("Export...", w.save_fbx)
+    w.toolbar_export.setDefaultAction(w.export_action)
+    w.toolbar_export.setText('Export')
     w.export_action.setToolTip(tooltip_text('Export the displayed motion as FBX, BVH or a portable Blender project. Multiple people export separately; MAMMA also offers a whole-scene Blender bundle.'))
     w.export_preview_action = file_menu.addAction('Export Preview...', w.save_preview)
     w.export_preview_action.setToolTip(tooltip_text('Save the selected input video beside the current 3D viewport as MP4 over the timeline trim. Keeps the current view, visible people/characters and viewport overlays. Includes source audio when available. Not available in PEAR live mode.'))
@@ -617,7 +770,7 @@ def build_workspace(w):
     help_menu = w.menuBar().addMenu("Help")
     w.check_system_action = help_menu.addAction("Check System", lambda: w.start_jobs([("diagnose", [])]))
     help_menu.addAction("Controls", lambda: QMessageBox.information(w, "Workspace Controls",
-        "Space: Play / Pause\nLeft / Right: Step one frame\nShift + Left / Right: Step one second\nHome / End: First / last frame\n\nViewport: LMB orbit, MMB / RMB pan, wheel zoom\nGizmo: click an axis to align the view\nTimeline: drag video clip edges to trim\nClick the frame ruler or drag the blue frame box to seek\nWheel to zoom; MMB to pan; Reset Trim restores the full clip\nClick ? in the timeline header for editing help.\nPlayback and reconstruction use the selected video clip range.\n\nThe mesh shows the selected motion result.\nFlowHMR and ExMR track fingers directly. GVHMR uses optional HandFlow for finger tracking.\nUse File > Export to choose FBX, BVH or a portable Blender project and save the displayed animation."))
+        "Space: Play / Pause\nLeft / Right: Step one frame\nShift + Left / Right: Step one second\nHome / End: First / last frame\n\nViewport: LMB orbit, MMB / RMB pan, wheel zoom\nGizmo: click an axis to align the view\nTimeline: drag video clip edges to trim\nLeft-click or left-drag the frame ruler or blue frame box to seek\nMMB-drag on frame numbers selects an FBX export range\nWheel to zoom; MMB on tracks or Shift+wheel to pan; Reset Trim restores the full clip\nClick ? in the timeline header for editing help.\nPlayback and reconstruction use the selected video clip range.\n\nThe mesh shows the selected motion result.\nFlowHMR and ExMR track fingers directly. GVHMR uses optional HandFlow for finger tracking.\nUse File > Export to choose FBX, BVH or a portable Blender project and save the displayed animation."))
 
     menu_help = {
         'Open Video...': 'Choose a video to create motion from.',
@@ -632,3 +785,6 @@ def build_workspace(w):
         for action in menu.actions():
             if action.text() in menu_help:
                 action.setToolTip(tooltip_text(menu_help[action.text()]))
+    appearance().changed.connect(w.refresh_appearance)
+    localizer().changed.connect(w.refresh_appearance)
+    localizer().schedule()

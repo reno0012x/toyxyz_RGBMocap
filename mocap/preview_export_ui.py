@@ -84,8 +84,10 @@ class PreviewExport(QObject):
     def scene_context(self):
         w = self.window
         v = w.motion_view
+        editor = getattr(w, 'bone_editor_controller', None)
+        focus = (editor.character_id, editor.take_index) if editor and editor.is_active() else None
         return (w.project, w.workspace_root, w.active_result, w.model_choice.currentData(),
-                id(v.joints), id(v.people_scene), id(v.target_frames), id(v.mesh_frames), id(v.native_vertices))
+                id(v.joints), id(v.people_scene), id(v.target_frames), id(v.mesh_frames), id(v.native_vertices), focus)
 
     def video_ready(self, index):
         if self.phase == 'waiting' and index == self.target:
@@ -93,7 +95,7 @@ class PreviewExport(QObject):
 
     def character_failed(self, key, message):
         w = self.window
-        if any(c.get('visible', True) and
+        if any(w.character_visible_in_viewport(c) and
                (key == str(w.character_path(c['asset'])) or
                 (c.get('animation') and Path(key).is_relative_to(w.character_path(c['animation']))))
                for c in w.characters):
@@ -104,7 +106,7 @@ class PreviewExport(QObject):
         w = self.window
         expected = 0
         for character in w.characters:
-            if not character.get('visible', True):
+            if not w.character_visible_in_viewport(character):
                 continue
             takes = character.get('takes')
             if takes:

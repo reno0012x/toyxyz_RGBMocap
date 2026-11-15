@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--video", type=Path)
     parser.add_argument("--project", type=Path)
+    parser.add_argument('--mcp-session', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument("--smoke-screenshot", type=Path)
     parser.add_argument("--smoke-run-analysis", action="store_true")
     parser.add_argument("--smoke-playback-seconds", type=float, default=0)
@@ -42,6 +43,9 @@ def main():
     app = QApplication(sys.argv[:1])
     app.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "assets" / "rgbmocap-icon.png")))
     configure_application(app)
+    if args.mcp_session:
+        from mocap.mcp_session import run_session
+        return run_session(app)
     window = MainWindow(args.video)
     window.bone_overlay.setChecked(args.smoke_bone_overlay=='on' if args.smoke_bone_overlay else args.smoke_render_mode!='raw')
     if args.project:

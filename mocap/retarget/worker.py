@@ -36,11 +36,20 @@ def main(args):
     elif job['mode']=='import':
         invoke('import',out,job['file'])
         result=json.loads((out/'import.json').read_text(encoding='utf8'))
+    elif job['mode']=='bone_editor_prepare':
+        invoke('bone_editor_prepare',out,job['animation'])
+        result=json.loads((out/'bone-editor.json').read_text(encoding='utf8'))
     elif job['mode']=='export':
         for i,(take,target) in enumerate(zip(job['takes'],job['files'])):
             report(f'Exporting character take {i+1}/{len(job["takes"])}')
             folder=Path(job['animation'])/take['folder']
             options=dict(format=job.get('format','fbx'),include_mesh=job.get('include_mesh',True))
+            if 'frame_slice' in take:
+                options['frame_slice']=take['frame_slice']
+            if 'bone_edits' in take:
+                options['bone_edits']=take['bone_edits']
+            elif 'bone_edits' in job:
+                options['bone_edits']=job['bone_edits']
             invoke('export',out,folder,target,json.dumps(take.get('transform')),job['source_name'],json.dumps(options))
         result=dict(files=job['files'])
     else:

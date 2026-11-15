@@ -8,6 +8,8 @@ import numpy as np
 from PySide6.QtCore import Qt, QPointF, QRectF, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
+from .theme import color as ui_color
+from .i18n import tr
 from .video_preview import PreviewDecoder
 from .viewport import MotionView
 
@@ -228,10 +230,10 @@ class VideoView(QWidget):
     def paintEvent(self, _):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#202020"))
+        painter.fillRect(self.rect(), QColor(ui_color('canvas')))
         if self.frame is None:
-            painter.setPen(QColor("#afbdd2"))
-            painter.drawText(self.rect(), Qt.AlignCenter, "Open a video to begin\nMP4 · MOV · AVI")
+            painter.setPen(QColor(ui_color('canvas_muted')))
+            painter.drawText(self.rect(), Qt.AlignCenter, tr("Open a video to begin\nMP4 · MOV · AVI"))
             return
         rect = self.image_rect()
         angle=0. if self.external_mode else self.preview_rotation%360

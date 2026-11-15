@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QDesktopServices, QTextOption
 from PySide6.QtWidgets import QApplication, QDialog, QHBoxLayout, QPushButton, QTextBrowser, QVBoxLayout
 from .motion_tools import MOTION_TOOLS
+from .theme import appearance, color
 
 # exmr-eval-2026-10-22/summary-body.json, clip_01 (210 frames at 30 fps).
 # Historical processing-only runs; FlowHMR predates Fast SAM.
@@ -46,13 +47,13 @@ def guide_html(selected):
         f'<p><b>{tool.label}</b> &nbsp; <a href="{PROJECT_URLS[key]}">Original project</a><br>'
         f'{DESCRIPTIONS[key]}</p>' for key, tool in MOTION_TOOLS.items())
     rows = ''.join(
-        ('<tr bgcolor="#303f50">' if key == selected else '<tr>') +
+        (f'<tr bgcolor="{color("selection")}">' if key == selected else '<tr>') +
         f'<td><b>{MOTION_TOOLS[key].label}</b></td>' +
         ''.join(f'<td>{value}</td>' for value in values) + '</tr>'
         for key, values in BENCHMARKS.items())
-    return """<html><head><style>
-body { font-size:12px; } h3 { margin-top:15px; } a { color:#8ed2ff; }
-th { text-align:left; background-color:#333333; } td, th { padding:7px; }
+    return f"""<html><head><style>
+body {{ font-size:13px; color:{color('text')}; }} h3 {{ margin-top:15px; }} a {{ color:{color('link')}; }}
+th {{ text-align:left; background-color:{color('hover')}; }} td, th {{ padding:7px; }}
 </style></head><body>
 <h3>Choosing a model</h3>
 <p>These are subjective observations from our test videos, not a universal ranking or accuracy benchmark.
@@ -105,8 +106,15 @@ class ModelGuideDialog(QDialog):
         self.browser.setOpenExternalLinks(False)
         self.browser.anchorClicked.connect(QDesktopServices.openUrl)
         self.browser.setHtml(guide_html(selected))
+        self._selected_model = selected
+        appearance().changed.connect(self.refresh_appearance)
         layout.addWidget(self.browser)
         actions = QHBoxLayout(); actions.addStretch()
         close = QPushButton('Close'); close.clicked.connect(self.accept)
         close.setToolTip('Close the model guide.')
         actions.addWidget(close); layout.addLayout(actions)
+
+    def refresh_appearance(self, *_):
+        position = self.browser.verticalScrollBar().value()
+        self.browser.setHtml(guide_html(self._selected_model))
+        self.browser.verticalScrollBar().setValue(position)

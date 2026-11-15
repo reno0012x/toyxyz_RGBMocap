@@ -2,6 +2,7 @@ import bpy,sys,json,time,numpy as np
 from pathlib import Path
 from mathutils import Matrix
 from .file_paths import io_path, save_blend
+from .mapping import unreal_finger
 A=np.array([[1.,0,0],[0,0,-1],[0,1,0]])
 def curves(action):
     return action.fcurves if hasattr(action, 'fcurves') else next((b for l in action.layers for s in l.strips for b in s.channelbags)).fcurves
@@ -70,6 +71,8 @@ def bake(kind, label, method):
         target = None
         if kind in {'mixamo', 'warrok', 'ch14'}:
             target = next((b.name for b in bones if b.name.split(':')[-1]==name), None)
+        elif kind == 'unreal':
+            target = unreal_finger(side, finger, phalanx)
         elif kind == 'vrm':
             semantic = side + ('Little' if finger == 'Pinky' else finger) + ['Proximal', 'Intermediate', 'Distal'][phalanx - 1]
             target = rig['semantic'].get(semantic)
@@ -80,7 +83,14 @@ def bake(kind, label, method):
         if target not in indices:
             continue
         target_bone = bones[indices[target]]
-        vtarget = np.array(arm.matrix_world @ target_bone.tail_local) - rest[indices[target]]
+        target_end = target_bone.tail_local
+        if kind == 'unreal':
+            child = arm.data.bones.get(unreal_finger(side, finger, phalanx + 1))
+            if child is not None and child.parent == target_bone:
+                target_end = child.head_local
+            elif target_bone.parent:
+                target_end = 2 * target_bone.head_local - target_bone.parent.head_local
+        vtarget = np.array(arm.matrix_world @ target_end) - rest[indices[target]]
         vsource = source_rest[j + 1] - source_rest[j] if phalanx < 3 else source_asset['ends'][j]
         C = align(vtarget @ A, vsource)
         Ch = source_frames[0, hand, :3, :3].T @ base['world'][0, hand]

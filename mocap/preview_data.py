@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import os
 import json
+import hashlib
+import uuid
 from pathlib import Path
-from threading import Condition, get_ident
+from threading import Condition
 import zipfile
 from collections import OrderedDict
 
@@ -138,11 +140,19 @@ def project_signature(project):
 
 def mapped_array(archive: Path, key: str, cancelled=lambda: False):
     stat = archive.stat()
-    folder = archive.parent / ".preview_cache" / archive.stem
+    session_cache = os.environ.get('RGB_MOCAP_INSPECTION_CACHE')
+    if session_cache:
+        address = hashlib.sha256(os.fsencode(archive.resolve())).hexdigest()
+        folder = Path(session_cache) / address
+    else:
+        folder = archive.parent / '.preview_cache' / archive.stem
     folder.mkdir(parents=True, exist_ok=True)
-    target = folder / f"{key}-{stat.st_size}-{stat.st_mtime_ns}.npy"
+    # Deep multi-person take paths leave little room below Windows MAX_PATH.
+    # Retain the same immutable stat identity without expanding it in filenames.
+    token = hashlib.sha256(repr((stat.st_size, stat.st_mtime_ns)).encode('ascii')).hexdigest()[:16]
+    target = folder / f"{key}-{token}.npy"
     if not target.exists():
-        temporary = target.with_suffix(f".{os.getpid()}.{get_ident()}.partial")
+        temporary = folder / ('.' + uuid.uuid4().hex[:16] + '.partial')
         try:
             with zipfile.ZipFile(archive) as source, source.open(key + ".npy") as entry, temporary.open("wb") as output:
                 while True:

@@ -4,6 +4,8 @@ This guide is for agents helping users operate or modify RGB MoCap. It describes
 
 ## Start and update
 
+- This checkout includes an opt-in [Codex MCP inspection session](CODEX_MCP.md) for saved projects, frame selection, viewport/video PNGs and comparison of saved correction results.
+
 - Windows 64-bit, compatible NVIDIA GPU/driver and OpenGL 4.3 are required for the documented inference workflow. Other systems and GPUs were not comprehensively verified; see [validation](VALIDATION.md).
 - In a writable checkout, run `install.cmd` once. It sets up separate pinned profiles for ExMR, FlowHMR and GVHMR and their supported add-ons, PEAR support over the shared runtime, Blender 4.5, FFmpeg and the prebuilt native motion-correction module. It does not install only the selected model's runtime or obtain AI weights/body data. Downloading and disk space are required. Models are obtained separately. Optional MAMMA, PromptHMR and GEM-X have separate setup commands.
 - Run `RGBMoCap.cmd`. Keep its command window open; launch errors, processing messages and app Console output are also sent there, but long messages can be truncated and a saturated output queue can drop messages. Within the GUI, **Help > Check System** checks the system.
@@ -494,7 +496,7 @@ runtime dependency, source motion or contact change is part of export.
 
 ## Character retargeting and export
 
-- **File > Import Character...** accepts Mixamo-style FBX, VRM and PMX, and adds the character in rest pose below people. Up to eight characters per project are supported.
+- **File > Import Character...** accepts Mixamo and Unreal humanoid FBX, VRM and PMX, and adds the character in rest pose below people. Up to eight characters per project are supported.
 - Right-click the character and choose **Retarget > [source person]**. Review via timeline; row checkboxes control visibility. Custom bone mapping is not implemented. Unsupported or incomplete mappings must not be silently relabeled.
 - The source's applied contact timings are used. **Apply Correction** refreshes linked characters; after other source changes retarget again. Targets that cannot be reached do not cause bone stretching. Different limb lengths can change travel distance, and editing may be required in a 3D tool.
 - **Export Character...** offers FBX with or without character mesh, and VMD for PMX characters. VMD is sampled at 30 fps for the same PMX model; facial motion and hair/clothing physics are not generated. Character FBX preserves its imported rest hierarchy and keys body bones, not the armature object. The character viewport uses original-resolution base-color textures with simplified lighting. Texture caches are prepared off the GUI thread, independently of motion; existing characters prepare them on first display.

@@ -1,5 +1,7 @@
 """Native SOMA names in the app's humanoid role order."""
 
+from .retarget.mapping import unreal_finger
+
 BODY = (
     'Hips', 'LeftLeg', 'RightLeg', 'Spine1', 'LeftShin', 'RightShin', 'Spine2',
     'LeftFoot', 'RightFoot', 'Chest', 'LeftToeBase', 'RightToeBase', 'Neck1',
@@ -18,6 +20,8 @@ def finger_mapping(kind, bones, semantic):
             for segment, part in enumerate(('Proximal', 'Intermediate', 'Distal'), 1):
                 if kind == 'mixamo':
                     target = suffix.get(f'{side}Hand{finger}{segment}')
+                elif kind == 'unreal':
+                    target = unreal_finger(side, finger, segment)
                 elif kind == 'vrm':
                     digit = 'Little' if finger == 'Pinky' else finger
                     target = semantic.get(side.lower() + digit + part)
